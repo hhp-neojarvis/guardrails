@@ -11,9 +11,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "hono": "^4.7.2",
+    "@guardrails/db": "workspace:*",
+    "@guardrails/shared": "workspace:*",
     "@hono/node-server": "^1.13.8",
-    "@guardrails/shared": "workspace:*"
+    "better-auth": "^1.4.19",
+    "hono": "^4.7.2"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

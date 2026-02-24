@@ -42,6 +42,31 @@ describe("API", () => {
     });
   });
 
+  describe("Auth routes", () => {
+    it("POST /api/auth/sign-up/email is mounted (not 404)", async () => {
+      const res = await app.request("/api/auth/sign-up/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).not.toBe(404);
+    });
+
+    it("POST /api/auth/sign-in/email is mounted (not 404)", async () => {
+      const res = await app.request("/api/auth/sign-in/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).not.toBe(404);
+    });
+
+    it("GET /api/auth/get-session is mounted (not 404)", async () => {
+      const res = await app.request("/api/auth/get-session");
+      expect(res.status).not.toBe(404);
+    });
+  });
+
   describe("404", () => {
     it("returns 404 for unknown routes", async () => {
       const res = await app.request("/nonexistent");
