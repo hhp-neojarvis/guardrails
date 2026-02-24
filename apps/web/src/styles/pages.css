@@ -480,6 +480,17 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* Highlight variant — draws attention when no accounts are connected */
+.dash-action-card.dash-action-highlight {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 1px var(--color-primary-100);
+}
+
+.dash-action-card.dash-action-highlight .dash-action-icon {
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+}
+
 /* Configuration card */
 .dash-config-card {
   display: flex;

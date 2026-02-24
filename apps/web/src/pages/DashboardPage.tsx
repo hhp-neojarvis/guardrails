@@ -1,11 +1,44 @@
-import { Link } from "react-router";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router";
 import { useAuth } from "../hooks/useAuth";
+
+const API_URL = "http://api.guardrails.localhost:1355";
 
 export function DashboardPage() {
   const { role } = useAuth();
+  const navigate = useNavigate();
+
+  const [metaAccountCount, setMetaAccountCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/meta/accounts`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setMetaAccountCount(data.accounts.length);
+        } else {
+          if (!cancelled) setMetaAccountCount(0);
+        }
+      } catch {
+        if (!cancelled) setMetaAccountCount(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const companyName = "Acme Corp";
   const companySlug = "acme-corp";
+
+  const metaSubtitle =
+    metaAccountCount === null
+      ? "Loading..."
+      : metaAccountCount === 0
+        ? "No accounts connected"
+        : `${metaAccountCount} account${metaAccountCount === 1 ? "" : "s"} connected`;
 
   return (
     <div>
@@ -64,13 +97,15 @@ export function DashboardPage() {
             </div>
             <span className="dash-action-arrow">&#8594;</span>
           </div>
-          <div className="dash-action-card">
+          <div
+            className={`dash-action-card${metaAccountCount === 0 ? " dash-action-highlight" : ""}`}
+            onClick={() => navigate("/settings/meta-accounts")}
+            role="link"
+          >
             <div className="dash-action-icon">&#9741;</div>
             <div className="dash-action-text">
               <div className="dash-action-title">Connect Meta Account</div>
-              <div className="dash-action-subtitle">
-                Link your ad platform
-              </div>
+              <div className="dash-action-subtitle">{metaSubtitle}</div>
             </div>
             <span className="dash-action-arrow">&#8594;</span>
           </div>
