@@ -7,6 +7,7 @@ import { AcceptInvitePage } from "./pages/AcceptInvitePage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { UserManagementPage } from "./pages/UserManagementPage";
+import { MetaAccountsPage } from "./pages/MetaAccountsPage";
 import { Layout } from "./components/Layout";
 
 export function AppRoutes() {
@@ -29,6 +30,13 @@ export function AppRoutes() {
               <UserManagementPage />
             </Layout>
           </AdminRoute>
+        } />
+        <Route path="/settings/meta-accounts" element={
+          <ProtectedRoute>
+            <Layout>
+              <MetaAccountsPage />
+            </Layout>
+          </ProtectedRoute>
         } />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>

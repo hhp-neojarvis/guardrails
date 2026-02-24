@@ -26,6 +26,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const companySlug = "acme-corp";
 
   const isActive = (path: string) => location.pathname === path;
+  const isActivePrefix = (prefix: string) => location.pathname.startsWith(prefix);
 
   return (
     <div className="app-layout">
@@ -76,6 +77,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
           )}
+
+          <div className="sidebar-nav-section">
+            <div className="sidebar-nav-section-header">Settings</div>
+            <Link
+              to="/settings/meta-accounts"
+              className={isActivePrefix("/settings/meta-accounts") ? "nav-active" : ""}
+            >
+              <span className="sidebar-nav-icon">&#9741;</span>
+              Meta Accounts
+            </Link>
+          </div>
         </div>
 
         {/* Version badge */}
