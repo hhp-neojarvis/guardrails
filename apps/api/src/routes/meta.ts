@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { authMiddleware, type AuthEnv } from "../middleware/auth.js";
-import { encrypt } from "../lib/crypto.js";
+import { encrypt, decrypt } from "../lib/crypto.js";
 import { db, metaAdAccounts, companyUsers, eq, and } from "@guardrails/db";
 
 // ---------------------------------------------------------------------------
@@ -352,6 +352,82 @@ meta.delete("/accounts/:id", authMiddleware, async (c) => {
     .where(eq(metaAdAccounts.id, accountId));
 
   return c.json({ success: true });
+});
+
+// POST /accounts/:id/refresh — manually refresh a token
+meta.post("/accounts/:id/refresh", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const accountId = c.req.param("id");
+
+  const [account] = await db
+    .select()
+    .from(metaAdAccounts)
+    .where(
+      and(
+        eq(metaAdAccounts.id, accountId),
+        eq(metaAdAccounts.companyId, auth.companyId),
+      ),
+    );
+
+  if (!account) {
+    return c.json({ error: "Account not found" }, 404);
+  }
+
+  try {
+    const currentToken = decrypt(account.encryptedAccessToken, account.tokenIv);
+
+    const response = await fetch(
+      `https://graph.facebook.com/v21.0/oauth/access_token?` +
+      `grant_type=fb_exchange_token&` +
+      `client_id=${env("META_APP_ID")}&` +
+      `client_secret=${env("META_APP_SECRET")}&` +
+      `fb_exchange_token=${currentToken}`
+    );
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      console.error("Token refresh failed:", errBody);
+
+      await db
+        .update(metaAdAccounts)
+        .set({ tokenStatus: "error", updatedAt: new Date() })
+        .where(eq(metaAdAccounts.id, accountId));
+
+      return c.json({ error: "Token refresh failed", tokenStatus: "error" }, 502);
+    }
+
+    const data = (await response.json()) as {
+      access_token: string;
+      expires_in?: number;
+    };
+
+    const { ciphertext, iv } = encrypt(data.access_token);
+    const tokenExpiresAt = data.expires_in
+      ? new Date(Date.now() + data.expires_in * 1000)
+      : null;
+
+    await db
+      .update(metaAdAccounts)
+      .set({
+        encryptedAccessToken: ciphertext,
+        tokenIv: iv,
+        tokenExpiresAt,
+        tokenStatus: "valid",
+        updatedAt: new Date(),
+      })
+      .where(eq(metaAdAccounts.id, accountId));
+
+    return c.json({ success: true, tokenStatus: "valid" });
+  } catch (error) {
+    console.error("Token refresh error:", error);
+
+    await db
+      .update(metaAdAccounts)
+      .set({ tokenStatus: "error", updatedAt: new Date() })
+      .where(eq(metaAdAccounts.id, accountId));
+
+    return c.json({ error: "Token refresh failed", tokenStatus: "error" }, 500);
+  }
 });
 
 export { meta, pendingAccounts };
