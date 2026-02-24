@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { authMiddleware, type AuthEnv } from "../middleware/auth.js";
+import { encrypt } from "../lib/crypto.js";
+import { db, metaAdAccounts, companyUsers, eq, and } from "@guardrails/db";
 
 // ---------------------------------------------------------------------------
 // Environment helpers
@@ -227,6 +229,129 @@ meta.get("/pending-accounts", authMiddleware, async (c) => {
     metaUserId: entry.metaUserId,
     sessionId,
   });
+});
+
+// POST /accounts — connect selected ad accounts
+meta.post("/accounts", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const { metaUserId, selectedAccountIds, sessionId } = await c.req.json<{
+    metaUserId: string;
+    selectedAccountIds: string[];
+    sessionId: string;
+  }>();
+
+  if (!sessionId || !selectedAccountIds?.length) {
+    return c.json({ error: "sessionId and selectedAccountIds are required" }, 400);
+  }
+
+  const entry = pendingAccounts.get(sessionId);
+  if (!entry) {
+    return c.json({ error: "Session not found or expired" }, 404);
+  }
+
+  // Validate user matches
+  if (entry.userId !== auth.userId) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+
+  let connected = 0;
+  let skipped = 0;
+
+  for (const accountId of selectedAccountIds) {
+    const account = entry.accounts.find((a) => a.account_id === accountId);
+    if (!account) continue;
+
+    const { ciphertext, iv } = encrypt(entry.accessToken);
+    const tokenExpiresAt = new Date(Date.now() + entry.expiresIn * 1000);
+
+    try {
+      await db.insert(metaAdAccounts).values({
+        companyId: auth.companyId,
+        connectedByUserId: auth.userId,
+        metaUserId: entry.metaUserId,
+        metaAccountId: account.account_id,
+        metaAccountName: account.name,
+        encryptedAccessToken: ciphertext,
+        tokenIv: iv,
+        tokenExpiresAt,
+        tokenStatus: "valid",
+      });
+      connected++;
+    } catch (err: any) {
+      // Unique constraint violation — account already connected for this company
+      if (err?.code === "23505") {
+        skipped++;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Clear the pending session
+  pendingAccounts.delete(sessionId);
+
+  return c.json({ connected, skipped });
+});
+
+// GET /accounts — list connected accounts for the company
+meta.get("/accounts", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+
+  const rows = await db
+    .select({
+      id: metaAdAccounts.id,
+      metaAccountId: metaAdAccounts.metaAccountId,
+      metaAccountName: metaAdAccounts.metaAccountName,
+      connectedByEmail: companyUsers.email,
+      connectedAt: metaAdAccounts.createdAt,
+      tokenStatus: metaAdAccounts.tokenStatus,
+    })
+    .from(metaAdAccounts)
+    .leftJoin(
+      companyUsers,
+      and(
+        eq(companyUsers.userId, metaAdAccounts.connectedByUserId),
+        eq(companyUsers.companyId, metaAdAccounts.companyId),
+      ),
+    )
+    .where(eq(metaAdAccounts.companyId, auth.companyId));
+
+  const accounts = rows.map((r) => ({
+    id: r.id,
+    metaAccountId: r.metaAccountId,
+    metaAccountName: r.metaAccountName,
+    connectedByEmail: r.connectedByEmail ?? "unknown",
+    connectedAt: r.connectedAt?.toISOString() ?? "",
+    tokenStatus: r.tokenStatus as "valid" | "expired" | "error",
+  }));
+
+  return c.json({ accounts });
+});
+
+// DELETE /accounts/:id — disconnect an ad account
+meta.delete("/accounts/:id", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const accountId = c.req.param("id");
+
+  const [existing] = await db
+    .select({ id: metaAdAccounts.id })
+    .from(metaAdAccounts)
+    .where(
+      and(
+        eq(metaAdAccounts.id, accountId),
+        eq(metaAdAccounts.companyId, auth.companyId),
+      ),
+    );
+
+  if (!existing) {
+    return c.json({ error: "Account not found" }, 404);
+  }
+
+  await db
+    .delete(metaAdAccounts)
+    .where(eq(metaAdAccounts.id, accountId));
+
+  return c.json({ success: true });
 });
 
 export { meta, pendingAccounts };
