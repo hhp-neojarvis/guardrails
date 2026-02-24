@@ -14,6 +14,12 @@ vi.mock("./hooks/useAuth", () => ({
   }),
 }));
 
+vi.mock("./lib/auth-client", () => ({
+  authClient: {
+    signIn: { email: vi.fn() },
+  },
+}));
+
 import { AppRoutes } from "./App";
 
 function renderWithRouter(initialEntries: string[]) {
@@ -51,5 +57,27 @@ describe("App routing", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
       "Accept Invite",
     );
+  });
+
+  it("login page renders email and password fields", () => {
+    renderWithRouter(["/login"]);
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Login" })).toBeInTheDocument();
+  });
+
+  it("accept invite page without token shows error message", () => {
+    renderWithRouter(["/accept-invite"]);
+    expect(screen.getByText("Invalid invitation link — no token provided.")).toBeInTheDocument();
+  });
+
+  it("accept invite page with token shows password form", () => {
+    renderWithRouter(["/accept-invite?token=test-token-123"]);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Set Password",
+    );
+    expect(screen.getByLabelText("New Password")).toBeInTheDocument();
+    expect(screen.getByLabelText("Confirm Password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set Password" })).toBeInTheDocument();
   });
 });

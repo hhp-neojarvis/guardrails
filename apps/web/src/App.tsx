@@ -6,6 +6,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { UserManagementPage } from "./pages/UserManagementPage";
+import { Layout } from "./components/Layout";
 
 export function AppRoutes() {
   return (
@@ -14,10 +15,18 @@ export function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/accept-invite" element={<AcceptInvitePage />} />
         <Route path="/dashboard" element={
-          <ProtectedRoute><DashboardPage /></ProtectedRoute>
+          <ProtectedRoute>
+            <Layout>
+              <DashboardPage />
+            </Layout>
+          </ProtectedRoute>
         } />
         <Route path="/users" element={
-          <AdminRoute><UserManagementPage /></AdminRoute>
+          <AdminRoute>
+            <Layout>
+              <UserManagementPage />
+            </Layout>
+          </AdminRoute>
         } />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
