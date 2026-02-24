@@ -51,6 +51,9 @@ importers:
       '@guardrails/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      better-auth:
+        specifier: ^1.4.19
+        version: 1.4.19(drizzle-kit@0.30.6)(drizzle-orm@0.38.4(@neondatabase/serverless@0.10.4)(@types/pg@8.11.6)(@types/react@19.2.14)(kysely@0.28.11)(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(vitest@3.2.4(@types/node@25.3.0)(jsdom@26.1.0)(tsx@4.21.0))
       react:
         specifier: ^19.0.0
         version: 19.2.4

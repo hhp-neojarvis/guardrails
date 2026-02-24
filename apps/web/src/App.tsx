@@ -1,20 +1,34 @@
-import { BrowserRouter, Routes, Route } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router";
+import { AuthProvider } from "./hooks/useAuth";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { AdminRoute } from "./components/AdminRoute";
+import { LoginPage } from "./pages/LoginPage";
+import { AcceptInvitePage } from "./pages/AcceptInvitePage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { UserManagementPage } from "./pages/UserManagementPage";
+
+export function AppRoutes() {
+  return (
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/accept-invite" element={<AcceptInvitePage />} />
+        <Route path="/dashboard" element={
+          <ProtectedRoute><DashboardPage /></ProtectedRoute>
+        } />
+        <Route path="/users" element={
+          <AdminRoute><UserManagementPage /></AdminRoute>
+        } />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </AuthProvider>
+  );
+}
 
 export function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-      </Routes>
+      <AppRoutes />
     </BrowserRouter>
-  );
-}
-
-function Home() {
-  return (
-    <div>
-      <h1>Guardrails</h1>
-      <p>Media Executor Guardrails Tool</p>
-    </div>
   );
 }
