@@ -5,6 +5,7 @@ import { authMiddleware, type AuthEnv } from "./middleware/auth.js";
 import { acceptInvite } from "./routes/accept-invite.js";
 import { resetPassword } from "./routes/reset-password.js";
 import { users } from "./routes/users.js";
+import { meta } from "./routes/meta.js";
 
 export const app = new Hono<AuthEnv>();
 
@@ -28,6 +29,7 @@ app.get("/health", (c) => {
 });
 
 app.route("/api/users", users);
+app.route("/api/meta", meta);
 
 app.get("/api/me", authMiddleware, (c) => {
   const authCtx = c.get("auth");
