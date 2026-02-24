@@ -72,4 +72,48 @@ users.get("/", authMiddleware, requireRole("super_admin"), async (c) => {
   return c.json({ users: usersList });
 });
 
+// POST /reset-password
+users.post(
+  "/reset-password",
+  authMiddleware,
+  requireRole("super_admin"),
+  async (c) => {
+    const { userId } = await c.req.json();
+
+    if (!userId) {
+      return c.json({ error: "userId is required" }, 400);
+    }
+
+    const auth = c.get("auth");
+    const [target] = await db
+      .select()
+      .from(companyUsers)
+      .where(
+        and(
+          eq(companyUsers.id, userId),
+          eq(companyUsers.companyId, auth.companyId),
+          eq(companyUsers.status, "active"),
+        ),
+      );
+
+    if (!target) {
+      return c.json({ error: "User not found or not active" }, 404);
+    }
+
+    const resetToken = crypto.randomUUID();
+    const resetTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const frontendUrl =
+      process.env.FRONTEND_URL ?? "http://guardrails.localhost:1355";
+
+    await db
+      .update(companyUsers)
+      .set({ resetToken, resetTokenExpiresAt })
+      .where(eq(companyUsers.id, userId));
+
+    return c.json({
+      resetLink: `${frontendUrl}/reset-password?token=${resetToken}`,
+    });
+  },
+);
+
 export { users };

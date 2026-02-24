@@ -20,6 +20,9 @@ export function UserManagementPage() {
   const [inviteError, setInviteError] = useState("");
   const [inviting, setInviting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [resetLink, setResetLink] = useState("");
+  const [resetError, setResetError] = useState("");
+  const [resetCopied, setResetCopied] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -68,6 +71,36 @@ export function UserManagementPage() {
     navigator.clipboard.writeText(inviteLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleResetPassword = async (userId: string) => {
+    setResetError("");
+    setResetLink("");
+
+    try {
+      const res = await fetch(`${API_URL}/api/users/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setResetError(data.error || "Failed to generate reset link");
+        return;
+      }
+
+      setResetLink(data.resetLink);
+    } catch {
+      setResetError("Something went wrong");
+    }
+  };
+
+  const copyResetLink = () => {
+    navigator.clipboard.writeText(resetLink);
+    setResetCopied(true);
+    setTimeout(() => setResetCopied(false), 2000);
   };
 
   return (
@@ -126,6 +159,29 @@ export function UserManagementPage() {
         </div>
       )}
 
+      {/* Reset link card */}
+      {resetLink && (
+        <div className="card mb-6">
+          <h3 className="mb-4">Password Reset Link</h3>
+          <p className="text-success mb-2">Reset link generated! Share this link with the user:</p>
+          <div className="invite-link-row">
+            <input type="text" value={resetLink} readOnly />
+            <button className="btn-secondary" onClick={copyResetLink}>
+              {resetCopied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <button className="btn-ghost mt-4" onClick={() => setResetLink("")}>
+            Done
+          </button>
+        </div>
+      )}
+
+      {resetError && (
+        <div className="card mb-6">
+          <p className="text-error">{resetError}</p>
+        </div>
+      )}
+
       {/* Users table */}
       {loading ? (
         <p className="text-secondary">Loading users...</p>
@@ -136,6 +192,7 @@ export function UserManagementPage() {
               <th>Email</th>
               <th>Role</th>
               <th>Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -147,6 +204,13 @@ export function UserManagementPage() {
                   <span className={`badge ${u.status === "active" ? "badge-success" : "badge-warning"}`}>
                     {u.status}
                   </span>
+                </td>
+                <td>
+                  {u.status === "active" && (
+                    <button className="btn-secondary" onClick={() => handleResetPassword(u.id)}>
+                      Reset Password
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { auth } from "./lib/auth.js";
 import { authMiddleware, type AuthEnv } from "./middleware/auth.js";
 import { acceptInvite } from "./routes/accept-invite.js";
+import { resetPassword } from "./routes/reset-password.js";
 import { users } from "./routes/users.js";
 
 export const app = new Hono<AuthEnv>();
@@ -16,6 +17,7 @@ app.use(
 );
 
 app.route("/api/auth", acceptInvite);
+app.route("/api/auth", resetPassword);
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => {
   return auth.handler(c.req.raw);

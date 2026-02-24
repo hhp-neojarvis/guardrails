@@ -14,10 +14,12 @@
     "@guardrails/db": "workspace:*",
     "@guardrails/shared": "workspace:*",
     "@hono/node-server": "^1.13.8",
+    "bcryptjs": "^3.0.3",
     "better-auth": "^1.4.19",
     "hono": "^4.7.2"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"

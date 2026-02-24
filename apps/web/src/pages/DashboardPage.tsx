@@ -1,23 +1,106 @@
+import { Link } from "react-router";
 import { useAuth } from "../hooks/useAuth";
 
 export function DashboardPage() {
-  const { user, role } = useAuth();
+  const { role } = useAuth();
+
+  const companyName = "Acme Corp";
+  const companySlug = "acme-corp";
 
   return (
     <div>
-      <h1 className="mb-6">Dashboard</h1>
-      <div className="info-grid">
-        <p><strong>Company:</strong> {/* companyId for now, name comes later */}</p>
-        <p>
-          <strong>Role:</strong>{" "}
-          <span className={`badge ${role === "super_admin" ? "badge-primary" : "badge-success"}`}>
-            {role === "super_admin" ? "Super Admin" : "Executor"}
-          </span>
-        </p>
-        <p><strong>Email:</strong> {user?.email}</p>
+      {/* Page header */}
+      <div className="dash-header">
+        <div className="dash-header-top">
+          <h1>{companyName}</h1>
+          <span className="badge badge-success">active</span>
+        </div>
+        <span className="dash-header-slug">Slug: {companySlug}</span>
       </div>
-      <div className="placeholder-area">
-        Campaign management coming soon...
+
+      {/* Overview stats */}
+      <div className="dash-section">
+        <div className="dash-section-heading">Overview</div>
+        <div className="dash-stats">
+          <div className="dash-stat-card">
+            <span className="dash-stat-icon">&#9654;</span>
+            <div className="dash-stat-value">0</div>
+            <div className="dash-stat-label">Active Campaigns</div>
+          </div>
+          <div className="dash-stat-card">
+            <span className="dash-stat-icon">&#9881;</span>
+            <div className="dash-stat-value">0</div>
+            <div className="dash-stat-label">Guardrails</div>
+          </div>
+          <div className="dash-stat-card">
+            <span className="dash-stat-icon">&#9733;</span>
+            <div className="dash-stat-value">0</div>
+            <div className="dash-stat-label">Total Executions</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="dash-section">
+        <div className="dash-section-heading">Quick Actions</div>
+        <div className="dash-actions">
+          <div className="dash-action-card dash-action-primary">
+            <div className="dash-action-icon">&#8593;</div>
+            <div className="dash-action-text">
+              <div className="dash-action-title">Upload Media Plan</div>
+              <div className="dash-action-subtitle">
+                Import a new media plan
+              </div>
+            </div>
+            <span className="dash-action-arrow">&#8594;</span>
+          </div>
+          <div className="dash-action-card">
+            <div className="dash-action-icon">&#9881;</div>
+            <div className="dash-action-text">
+              <div className="dash-action-title">Manage Guardrails</div>
+              <div className="dash-action-subtitle">
+                Configure validation rules
+              </div>
+            </div>
+            <span className="dash-action-arrow">&#8594;</span>
+          </div>
+          <div className="dash-action-card">
+            <div className="dash-action-icon">&#9741;</div>
+            <div className="dash-action-text">
+              <div className="dash-action-title">Connect Meta Account</div>
+              <div className="dash-action-subtitle">
+                Link your ad platform
+              </div>
+            </div>
+            <span className="dash-action-arrow">&#8594;</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Configuration */}
+      <div className="dash-section">
+        <div className="dash-section-heading">Configuration</div>
+        {role === "super_admin" ? (
+          <Link to="/users" className="dash-config-card">
+            <div className="dash-config-text">
+              <span className="dash-config-title">
+                Company Settings &mdash; Manage users, roles &amp; preferences
+              </span>
+            </div>
+            <span className="dash-config-arrow">Configure &#8594;</span>
+          </Link>
+        ) : (
+          <div className="dash-config-card">
+            <div className="dash-config-text">
+              <span className="dash-config-title">
+                Company Settings &mdash; Manage users, roles &amp; preferences
+              </span>
+              <span className="dash-config-subtitle">
+                Contact your admin for access
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

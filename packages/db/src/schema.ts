@@ -16,5 +16,7 @@ export const companyUsers = pgTable("company_users", {
   role: text("role").notNull(),
   status: text("status").notNull(),
   inviteToken: text("invite_token"),
+  resetToken: text("reset_token"),
+  resetTokenExpiresAt: timestamp("reset_token_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
