@@ -1,0 +1,22 @@
+node_modules
+dist
+.env
+.env.local
+*.tsbuildinfo
+
+# Vite
+apps/web/dist
+
+# Playwright
+apps/web/test-results
+apps/web/playwright-report
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

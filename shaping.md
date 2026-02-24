@@ -88,14 +88,28 @@ Rows sharing the same **Markets + Channel** = one campaign. Rows within that gro
 | **A6** | **Meta Ads Draft Creator** — takes validated configs, creates campaigns + ad sets as PAUSED drafts via Meta Marketing API. Never publishes |
 | **A7** | **Publisher** — separate action with separate confirmation. Publishes drafts on explicit user request only |
 | **A8** | **Override Audit Log** — records every guardrail override: user, timestamp, guardrail rule, campaign, violation detail, user's reason for override |
-| **A9** | **Auth + User Management** — multi-tenant: each company is a tenant with data isolation. Super admin creates company + invites users (email/password auth). Two roles: super_admin, executor. Users belong to exactly one company. Guardrails, campaigns, audit logs all scoped to company |
+| **A9** | **Auth + User Management (Neon Auth + Neon Postgres)** — Neon Auth (built on Better Auth) handles login/sessions, user data lives in `neon_auth` schema in the same Neon Postgres DB. Custom `companies` table + `company_users` bridge table for multi-tenancy. RLS policies scope all data to company_id. Super admin created via seed script. Invite flow: creates invite + generates link shown on screen, super admin sends manually. Two roles: super_admin, executor. Users belong to exactly one company |
 | **A10** | **Meta Ad Account Connection** — user connects a specific Meta Ad Account via OAuth. Tool stores access token per ad account, refreshes as needed. User can connect multiple ad accounts and select which to use per campaign execution. All Meta API calls scoped to the selected ad account |
+
+### Tech Stack
+
+| Layer | Choice | Rationale |
+|-------|--------|-----------|
+| **Frontend** | React + Vite | Client-side SPA — app is behind login, no SSR needed |
+| **Backend** | Hono (Node) | Lightweight, TypeScript-native, first-class SSE streaming for LLM/progress responses |
+| **Auth** | Neon Auth (Better Auth) | Managed auth with user data in same DB, no separate auth service |
+| **Database** | Neon Postgres | Serverless Postgres, RLS for tenant isolation |
+| **ORM** | Drizzle | TypeScript-native schema, migrations, works with Neon serverless driver |
+| **Dev Tooling** | Portless | Stable `.localhost` URLs instead of ports — `guardrails.localhost:1355` (web), `api.guardrails.localhost:1355` (API). Solves CORS, cookie, and port conflict issues |
+| **UI Design** | frontend-design-system skill | Design tokens, layout rules, motion guidance, accessibility checks for consistent UI |
+| **Language** | TypeScript end-to-end | Shared types between frontend and backend |
 
 ### Architectural Decisions
 
 - **A2: LLM interprets, Meta API resolves.** The LLM parses human shorthand into structured intent. A programmatic step then resolves that intent against Meta's actual targeting/placement APIs to get real IDs. This prevents hallucinated IDs.
 - **A3→A4: Guardrails are dual-format.** Each guardrail has a natural language description (for display) AND a structured check definition (for deterministic execution). The LLM generates both during setup; validation is purely programmatic.
 - **A6: Drafts are PAUSED, not just drafts.** Meta's API creates campaigns in PAUSED status. This means they exist in Ads Manager for review but won't spend any budget.
+- **Streaming via SSE.** LLM interpretation (V1/V2), guardrail generation (V3), validation (V4), and draft creation (V5) all stream progress to the frontend via Hono's `streamSSE()`.
 
 ### Pipeline Flow
 
@@ -155,6 +169,97 @@ Rows sharing the same **Markets + Channel** = one campaign. Rows within that gro
 
 - **A2 risk:** Geo/Markets interpretation is identified as highest-risk column for misinterpretation. Will need robust resolution against Meta's geo targeting search API. Spike candidate.
 - **A3 operators:** Guardrail rule operators will emerge organically as real guardrail examples accumulate. No fixed operator set upfront.
+
+---
+
+## Detail V0: Auth + Multi-tenancy (Neon Auth + Neon Postgres)
+
+**Tech stack:** React + Vite (frontend), Hono (backend), Neon Auth (Better Auth), Neon Postgres, Drizzle ORM. Full TypeScript.
+
+### UI Affordances
+
+| ID | Place | Affordance | Type | Notes |
+|----|-------|------------|------|-------|
+| **U1** | Login Page | Email input | Field | |
+| **U2** | Login Page | Password input | Field | |
+| **U3** | Login Page | Login button | Action | → Neon Auth email/password sign-in → redirect to Dashboard |
+| **U4** | Dashboard | Company name display | Display | Shows current tenant context |
+| **U5** | Dashboard | User role badge | Display | "Super Admin" or "Executor" |
+| **U6** | Dashboard | Logout button | Action | Clears session, redirects to Login |
+| **U7** | User Management Page | Users list table | Display | Name, email, role, status. Only visible to super_admin |
+| **U8** | User Management Page | Invite User button | Action | Opens invite form |
+| **U9** | Invite User Form | Email input | Field | |
+| **U10** | Invite User Form | Role selector | Field | super_admin / executor |
+| **U11** | Invite User Form | Create Invite button | Action | Creates invite record, displays invitation link on screen |
+| **U11.1** | Invite User Form | Invitation link display | Display | Copyable link shown after invite created. Super admin sends manually (email, chat, etc.) |
+| **U12** | Set Password Page | New password input | Field | Invited user lands here from invitation link |
+| **U13** | Set Password Page | Confirm password input | Field | |
+| **U14** | Set Password Page | Set Password button | Action | Creates Neon Auth account + activates user, redirects to Login |
+| **U15** | Nav Sidebar | User Management link | Navigation | Only visible to super_admin |
+
+### Non-UI Affordances
+
+| ID | Affordance | Type | Notes |
+|----|------------|------|-------|
+| **N1** | `neon_auth.users` | Store | Managed by Neon Auth — id, email, password hash, sessions. We read from this, don't write directly |
+| **N2** | `public.companies` table | Store | id, name, created_at |
+| **N3** | `public.company_users` table | Store | user_id (FK→neon_auth.users), company_id (FK→N2), role (super_admin/executor), status (invited/active), invite_token, created_at |
+| **N4** | RLS policies | Policy | All tables with company_id get a policy: `WHERE company_id = auth.company_id()`. Enforces tenant isolation at DB level |
+| **N5** | `POST /api/auth/*` | Handler | Neon Auth handles login/logout/session via Better Auth SDK routes |
+| **N6** | `POST /api/users/invite` | Handler | Super_admin only. Creates `company_users` row (status=invited, invite_token). Returns invitation link in response (no email sent) |
+| **N7** | `POST /api/auth/accept-invite` | Handler | Validates invite_token → creates Neon Auth account (Better Auth sign-up) → sets company_users.status=active → invalidates token |
+| **N8** | `GET /api/users` | Handler | Super_admin only. Returns company_users joined with neon_auth.users, scoped by RLS |
+| **N9** | Auth middleware | Handler | Verifies Neon Auth session, looks up company_users to attach company_id + role to request context |
+| **N10** | Seed script | Script | Creates first company + super_admin (creates Neon Auth user + company_users row) |
+
+### Wiring
+
+```
+[Login Page]
+  U1 (email) + U2 (password) → U3 (login)
+    → N5 (Neon Auth sign-in via Better Auth SDK)
+    → N9 (middleware resolves company_id + role from company_users)
+    → redirect to Dashboard
+
+[Dashboard]
+  N9 (auth middleware) → injects session + company context
+  U4 (company name) ← N2 (companies, scoped by RLS)
+  U5 (role badge) ← N3 (company_users.role)
+  U6 (logout) → N5 (Neon Auth sign-out) → Login Page
+
+[Nav Sidebar]
+  U15 (User Mgmt link) → visible only if role=super_admin
+
+[User Management Page]  (super_admin only, enforced by N9 + N4)
+  U7 (users list) ← N8 (GET /users, RLS-scoped)
+  U8 (invite) → opens Invite User Form
+
+[Invite User Form]
+  U9 (email) + U10 (role) → U11 (create invite)
+    → N6 (POST /invite)
+    → N3 (creates company_users row: status=invited, invite_token)
+    → returns invitation link
+    → U11.1 (displays copyable link on screen)
+    → super admin copies link and sends manually
+
+[Set Password Page]
+  U12 (password) + U13 (confirm) → U14 (set password)
+    → N7 (POST /accept-invite)
+    → validates invite_token against N3
+    → creates user in N1 (Neon Auth sign-up via Better Auth SDK)
+    → N3 (updates status=active, clears invite_token)
+    → redirect to Login Page
+
+[Bootstrap]
+  N10 (seed script) → N2 (creates company) + N1 (creates Neon Auth user) + N3 (creates company_users: super_admin, active)
+```
+
+### Key Design Decisions
+
+- **`company_users` bridge table** — Neon Auth owns the user identity (N1). We don't extend their schema. Instead, `company_users` (N3) bridges auth users to our tenancy model with role + status.
+- **RLS for tenant isolation** — Every table with company_id gets a row-level security policy. The middleware sets a session variable (`auth.company_id`) that RLS reads. Tenant isolation enforced at DB level.
+- **Invite flow is manual for MVP** — No email delivery. Super admin creates an invite, gets a copyable link on screen, sends it however they like.
+- **Super admin bootstrapped via seed script** — No self-registration. First company + super admin created programmatically.
 
 ---
 
