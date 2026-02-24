@@ -4,3 +4,4 @@ export { companies, companyUsers } from "./schema.js";
 export { user, session, account, verification } from "./auth-schema.js";
 export { db, sql } from "./client.js";
 export type { InferSelectModel, InferInsertModel } from "drizzle-orm";
+export { eq, and, or, ne, gt, gte, lt, lte, isNull, isNotNull, inArray } from "drizzle-orm";
