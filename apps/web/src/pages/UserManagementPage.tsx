@@ -72,57 +72,53 @@ export function UserManagementPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+      <div className="page-header">
         <h1>User Management</h1>
-        <button onClick={() => { setShowInviteForm(true); setInviteLink(""); setInviteEmail(""); setInviteError(""); }}
-          style={{ padding: "8px 16px", cursor: "pointer" }}>
+        <button className="btn-primary" onClick={() => { setShowInviteForm(true); setInviteLink(""); setInviteEmail(""); setInviteError(""); }}>
           Invite User
         </button>
       </div>
 
       {/* Invite form modal/section */}
       {showInviteForm && (
-        <div style={{ marginBottom: 24, padding: 20, border: "1px solid #e0e0e0", borderRadius: 8 }}>
-          <h3 style={{ marginTop: 0 }}>Invite User</h3>
+        <div className="card mb-6">
+          <h3 className="mb-4">Invite User</h3>
           {!inviteLink ? (
             <form onSubmit={handleInvite}>
-              <div style={{ marginBottom: 12 }}>
-                <label htmlFor="inviteEmail" style={{ display: "block", marginBottom: 4 }}>Email</label>
+              <div className="form-group">
+                <label htmlFor="inviteEmail">Email</label>
                 <input id="inviteEmail" type="email" value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)} required
-                  style={{ width: "100%", padding: 8, maxWidth: 300 }} />
+                  style={{ maxWidth: 300 }} />
               </div>
-              <div style={{ marginBottom: 12 }}>
-                <label htmlFor="inviteRole" style={{ display: "block", marginBottom: 4 }}>Role</label>
+              <div className="form-group">
+                <label htmlFor="inviteRole">Role</label>
                 <select id="inviteRole" value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  style={{ padding: 8 }}>
+                  onChange={(e) => setInviteRole(e.target.value)}>
                   <option value="executor">Executor</option>
                   <option value="super_admin">Super Admin</option>
                 </select>
               </div>
-              {inviteError && <p style={{ color: "red" }}>{inviteError}</p>}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="submit" disabled={inviting} style={{ padding: "8px 16px" }}>
+              {inviteError && <p className="text-error mb-4">{inviteError}</p>}
+              <div className="form-actions">
+                <button type="submit" className="btn-primary" disabled={inviting}>
                   {inviting ? "Creating..." : "Create Invite"}
                 </button>
-                <button type="button" onClick={() => setShowInviteForm(false)} style={{ padding: "8px 16px" }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowInviteForm(false)}>
                   Cancel
                 </button>
               </div>
             </form>
           ) : (
             <div>
-              <p style={{ color: "green", marginBottom: 8 }}>Invite created! Share this link:</p>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input type="text" value={inviteLink} readOnly
-                  style={{ flex: 1, padding: 8, maxWidth: 500 }} />
-                <button onClick={copyLink} style={{ padding: "8px 16px" }}>
+              <p className="text-success mb-2">Invite created! Share this link:</p>
+              <div className="invite-link-row">
+                <input type="text" value={inviteLink} readOnly />
+                <button className="btn-secondary" onClick={copyLink}>
                   {copied ? "Copied!" : "Copy"}
                 </button>
               </div>
-              <button onClick={() => setShowInviteForm(false)}
-                style={{ marginTop: 12, padding: "8px 16px" }}>
+              <button className="btn-ghost mt-4" onClick={() => setShowInviteForm(false)}>
                 Done
               </button>
             </div>
@@ -132,26 +128,23 @@ export function UserManagementPage() {
 
       {/* Users table */}
       {loading ? (
-        <p>Loading users...</p>
+        <p className="text-secondary">Loading users...</p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <table>
           <thead>
-            <tr style={{ borderBottom: "2px solid #e0e0e0", textAlign: "left" }}>
-              <th style={{ padding: 8 }}>Email</th>
-              <th style={{ padding: 8 }}>Role</th>
-              <th style={{ padding: 8 }}>Status</th>
+            <tr>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                <td style={{ padding: 8 }}>{u.email}</td>
-                <td style={{ padding: 8 }}>{u.role === "super_admin" ? "Super Admin" : "Executor"}</td>
-                <td style={{ padding: 8 }}>
-                  <span style={{
-                    padding: "2px 8px", borderRadius: 4, fontSize: 13,
-                    background: u.status === "active" ? "#e8f5e9" : "#fff3e0",
-                  }}>
+              <tr key={u.id}>
+                <td>{u.email}</td>
+                <td>{u.role === "super_admin" ? "Super Admin" : "Executor"}</td>
+                <td>
+                  <span className={`badge ${u.status === "active" ? "badge-success" : "badge-warning"}`}>
                     {u.status}
                   </span>
                 </td>

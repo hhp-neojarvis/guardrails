@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev:app": "tsx watch src/index.ts",
+    "dev:app": "tsx watch --env-file=../../.env src/index.ts",
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -15,9 +15,11 @@ export function AcceptInvitePage() {
 
   if (!token) {
     return (
-      <div style={{ maxWidth: 400, margin: "100px auto", padding: 24 }}>
-        <h1>Accept Invite</h1>
-        <p style={{ color: "red" }}>Invalid invitation link — no token provided.</p>
+      <div className="page-center">
+        <div className="card">
+          <h1 className="mb-4">Accept Invite</h1>
+          <p className="text-error">Invalid invitation link — no token provided.</p>
+        </div>
       </div>
     );
   }
@@ -59,38 +61,38 @@ export function AcceptInvitePage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: "100px auto", padding: 24 }}>
-      <h1>Set Password</h1>
-      <p style={{ marginBottom: 24, color: "#666" }}>Create your password to activate your account.</p>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 16 }}>
-          <label htmlFor="password" style={{ display: "block", marginBottom: 4 }}>New Password</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={8}
-            style={{ width: "100%", padding: 8 }}
-          />
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label htmlFor="confirmPassword" style={{ display: "block", marginBottom: 4 }}>Confirm Password</label>
-          <input
-            id="confirmPassword"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            style={{ width: "100%", padding: 8 }}
-          />
-        </div>
-        {error && <p style={{ color: "red", marginBottom: 16 }}>{error}</p>}
-        <button type="submit" disabled={submitting} style={{ width: "100%", padding: 10 }}>
-          {submitting ? "Setting password..." : "Set Password"}
-        </button>
-      </form>
+    <div className="page-center">
+      <div className="card">
+        <h1 className="mb-2">Set Password</h1>
+        <p className="text-secondary mb-6">Create your password to activate your account.</p>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="password">New Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="confirmPassword">Confirm Password</label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+          </div>
+          {error && <p className="text-error mb-4">{error}</p>}
+          <button type="submit" className="btn-primary" disabled={submitting} style={{ width: "100%" }}>
+            {submitting ? "Setting password..." : "Set Password"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

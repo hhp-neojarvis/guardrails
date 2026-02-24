@@ -17,7 +17,7 @@ app.use(
 
 app.route("/api/auth", acceptInvite);
 
-app.on(["POST", "GET"], "/api/auth/**", (c) => {
+app.on(["POST", "GET"], "/api/auth/*", (c) => {
   return auth.handler(c.req.raw);
 });
 

@@ -5,24 +5,18 @@ export function DashboardPage() {
 
   return (
     <div>
-      <h1>Dashboard</h1>
-      <div style={{ marginTop: 16 }}>
+      <h1 className="mb-6">Dashboard</h1>
+      <div className="info-grid">
         <p><strong>Company:</strong> {/* companyId for now, name comes later */}</p>
         <p>
           <strong>Role:</strong>{" "}
-          <span style={{
-            display: "inline-block",
-            padding: "2px 8px",
-            borderRadius: 4,
-            background: role === "super_admin" ? "#e3f2fd" : "#f3e5f5",
-            fontSize: 14,
-          }}>
+          <span className={`badge ${role === "super_admin" ? "badge-primary" : "badge-success"}`}>
             {role === "super_admin" ? "Super Admin" : "Executor"}
           </span>
         </p>
         <p><strong>Email:</strong> {user?.email}</p>
       </div>
-      <div style={{ marginTop: 32, padding: 24, border: "1px dashed #ccc", borderRadius: 8, color: "#999" }}>
+      <div className="placeholder-area">
         Campaign management coming soon...
       </div>
     </div>

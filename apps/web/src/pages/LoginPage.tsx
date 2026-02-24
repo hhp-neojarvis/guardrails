@@ -39,37 +39,37 @@ export function LoginPage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: "100px auto", padding: 24 }}>
-      <h1>Login</h1>
-      {message && <p style={{ color: "green", marginBottom: 16 }}>{message}</p>}
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 16 }}>
-          <label htmlFor="email" style={{ display: "block", marginBottom: 4 }}>Email</label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{ width: "100%", padding: 8 }}
-          />
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <label htmlFor="password" style={{ display: "block", marginBottom: 4 }}>Password</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{ width: "100%", padding: 8 }}
-          />
-        </div>
-        {error && <p style={{ color: "red", marginBottom: 16 }}>{error}</p>}
-        <button type="submit" disabled={submitting} style={{ width: "100%", padding: 10 }}>
-          {submitting ? "Logging in..." : "Login"}
-        </button>
-      </form>
+    <div className="page-center">
+      <div className="card">
+        <h1 className="mb-6">Login</h1>
+        {message && <p className="text-success mb-4">{message}</p>}
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+          {error && <p className="text-error mb-4">{error}</p>}
+          <button type="submit" className="btn-primary" disabled={submitting} style={{ width: "100%" }}>
+            {submitting ? "Logging in..." : "Login"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
