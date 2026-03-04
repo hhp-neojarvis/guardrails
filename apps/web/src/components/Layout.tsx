@@ -71,6 +71,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
               Upload Media Plan
             </Link>
             <Link
+              to="/jobs"
+              className={isActivePrefix("/jobs") ? "nav-active" : ""}
+            >
+              <span className="sidebar-nav-icon">&#9776;</span>
+              Jobs
+            </Link>
+            <Link
               to="/guardrails"
               className={isActive("/guardrails") ? "nav-active" : ""}
             >

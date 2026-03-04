@@ -29,7 +29,7 @@ export interface GuardrailRule {
   id: string;
   companyId: string;
   description: string;
-  check: GuardrailCheck;
+  check?: GuardrailCheck; // optional — LLM-based validation uses only description
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -38,7 +38,7 @@ export interface GuardrailRule {
 // ─── API Request/Response Types ──────────────────────────────────────────────
 export interface CreateGuardrailRequest {
   description: string;
-  check: GuardrailCheck;
+  check?: GuardrailCheck; // optional
 }
 
 export interface UpdateGuardrailRequest {
@@ -58,7 +58,53 @@ export interface GenerateGuardrailsRequest {
 // ─── LLM-Generated Rule (before saving) ─────────────────────────────────────
 export interface GeneratedRule {
   description: string;
-  check: GuardrailCheck;
+  check?: GuardrailCheck; // optional — generator may still produce structured checks
+}
+
+// ─── Guardrail Validation Result (V4) ────────────────────────────────────────
+
+export interface GuardrailViolation {
+  ruleId: string;
+  ruleDescription: string;
+  field: string;     // LLM may return free-form field names
+  expected: unknown;
+  actual: unknown;
+  message: string;
+}
+
+export interface CampaignGuardrailResult {
+  campaignGroupId: string;
+  campaignName: string;
+  violations: GuardrailViolation[];
+  status: 'pass' | 'fail';
+}
+
+export interface GuardrailValidationResult {
+  totalRules: number;
+  totalCampaigns: number;
+  results: CampaignGuardrailResult[];
+  hasViolations: boolean;
+}
+
+// ─── Override Types (V4) ─────────────────────────────────────────────────────
+
+export interface OverrideRequest {
+  campaignGroupId: string;
+  ruleId: string;
+  reason: string;
+}
+
+export interface OverrideRecord {
+  id: string;
+  uploadId: string;
+  campaignGroupId: string;
+  ruleId: string;
+  ruleDescription: string;
+  violationMessage: string;
+  reason: string;
+  overriddenByUserId: string;
+  overriddenByEmail: string;
+  createdAt: string;
 }
 
 // ─── SSE Events for Generation Stream ────────────────────────────────────────

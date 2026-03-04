@@ -8,7 +8,8 @@
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "encrypt-key": "tsx --env-file=../../.env src/scripts/encrypt-key.ts"
   },
   "dependencies": {
     "@guardrails/db": "workspace:*",

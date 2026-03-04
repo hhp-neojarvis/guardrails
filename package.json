@@ -14,7 +14,8 @@
     "typecheck": "pnpm -r typecheck",
     "db:migrate": "pnpm --filter @guardrails/db db:migrate",
     "db:seed": "pnpm --filter @guardrails/db db:seed",
-    "db:studio": "pnpm --filter @guardrails/db db:studio"
+    "db:studio": "pnpm --filter @guardrails/db db:studio",
+    "encrypt-key": "pnpm --filter @guardrails/api encrypt-key"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild"]

@@ -6,6 +6,8 @@ import {
   metaAdAccounts,
   excelUploads,
   campaignGroups,
+  guardrails,
+  guardrailOverrides,
   eq,
   and,
 } from "@guardrails/db";
@@ -15,7 +17,10 @@ import { validateRows } from "../services/excel-validator.js";
 import { interpretGeoFromMarkets } from "../services/geo-interpreter.js";
 import { resolveGeoTargets } from "../services/geo-resolver.js";
 import { interpretLineItem, deriveCampaignBuyType } from "../services/column-interpreter.js";
+import { validateGuardrails } from "../services/guardrail-validator.js";
+import { validateGuardrailsLLM } from "../services/guardrail-llm-validator.js";
 import type { PipelineEvent, CampaignGroup, ThinkingEntry } from "@guardrails/shared";
+import type { GuardrailValidationResult } from "@guardrails/shared";
 
 const uploads = new Hono<AuthEnv>();
 
@@ -204,7 +209,7 @@ uploads.post("/upload", authMiddleware, async (c) => {
         });
 
         try {
-          const intents = await interpretGeoFromMarkets(markets);
+          const intents = await interpretGeoFromMarkets(markets, auth.companyId);
           marketsToIntents.set(markets, intents);
           await sendThinking({
             stage: "interpreting",
@@ -367,7 +372,7 @@ uploads.post("/upload", authMiddleware, async (c) => {
 
       // ── Save campaign groups to DB ──
       for (const group of groups) {
-        await db.insert(campaignGroups).values({
+        const [inserted] = await db.insert(campaignGroups).values({
           uploadId: uploadId!,
           companyId: auth.companyId,
           markets: group.markets,
@@ -380,25 +385,118 @@ uploads.post("/upload", authMiddleware, async (c) => {
           lineItemConfigs: group.lineItemConfigs,
           campaignBuyType: group.campaignBuyType,
           status: group.status,
-        });
+        }).returning({ id: campaignGroups.id });
+        group.id = inserted.id;
       }
 
-      // Update upload status
-      await db
-        .update(excelUploads)
-        .set({ status: "completed", updatedAt: new Date() })
-        .where(eq(excelUploads.id, uploadId!));
+      // ── Stage 6: Guardrail Checking ──
+      const activeRules = await db
+        .select()
+        .from(guardrails)
+        .where(
+          and(
+            eq(guardrails.companyId, auth.companyId),
+            eq(guardrails.active, true),
+          ),
+        );
 
-      // ── Complete ──
-      await sendEvent({
-        type: "complete",
-        message: "Upload processing complete",
-        data: {
-          totalRows: rows.length,
-          totalGroups: groups.length,
-          groups,
-        },
-      });
+      let guardrailResults: GuardrailValidationResult | undefined;
+
+      if (activeRules.length > 0) {
+        await sendEvent({
+          type: "guardrail_checking",
+          message: "Checking guardrails with AI...",
+        });
+
+        // Map DB rows to GuardrailRule type
+        const rules = activeRules.map((r) => ({
+          id: r.id,
+          companyId: r.companyId,
+          description: r.description,
+          check: r.check as import("@guardrails/shared").GuardrailCheck | undefined,
+          active: r.active,
+          createdAt: r.createdAt?.toISOString() ?? "",
+          updatedAt: r.updatedAt?.toISOString() ?? "",
+        }));
+
+        const useRuleValidator = process.env.GUARDRAIL_VALIDATOR_MODE === "rule";
+        guardrailResults = useRuleValidator
+          ? validateGuardrails(supportedGroups, rules)
+          : await validateGuardrailsLLM(supportedGroups, rules, auth.companyId);
+
+        // Emit thinking for each campaign result
+        for (const result of guardrailResults.results) {
+          if (result.status === "pass") {
+            await sendThinking({
+              stage: "guardrail_checking",
+              subject: result.campaignName,
+              message: `All ${rules.length} guardrail rules passed`,
+              status: "pass",
+            });
+          } else {
+            for (const v of result.violations) {
+              await sendThinking({
+                stage: "guardrail_checking",
+                subject: result.campaignName,
+                message: `Violation: ${v.message}`,
+                status: "warn",
+              });
+            }
+          }
+        }
+
+        await sendEvent({
+          type: "guardrail_checked",
+          message: guardrailResults.hasViolations
+            ? `Guardrail check: ${guardrailResults.results.filter((r) => r.status === "fail").length} campaigns have violations`
+            : "All guardrail checks passed",
+          data: { guardrailResults },
+        });
+
+        // Save guardrail results to upload
+        await db
+          .update(excelUploads)
+          .set({ guardrailResults, updatedAt: new Date() })
+          .where(eq(excelUploads.id, uploadId!));
+      }
+
+      // Determine final status
+      if (guardrailResults?.hasViolations) {
+        // Pause — awaiting user review
+        await db
+          .update(excelUploads)
+          .set({ status: "awaiting_review", updatedAt: new Date() })
+          .where(eq(excelUploads.id, uploadId!));
+
+        await sendEvent({
+          type: "awaiting_review",
+          message: "Guardrail violations found — review required",
+          data: {
+            totalRows: rows.length,
+            totalGroups: groups.length,
+            groups,
+            guardrailResults,
+            uploadId: uploadId!,
+          },
+        });
+      } else {
+        // No violations or no rules — complete
+        await db
+          .update(excelUploads)
+          .set({ status: "completed", updatedAt: new Date() })
+          .where(eq(excelUploads.id, uploadId!));
+
+        await sendEvent({
+          type: "complete",
+          message: "Upload processing complete",
+          data: {
+            totalRows: rows.length,
+            totalGroups: groups.length,
+            groups,
+            uploadId: uploadId!,
+          },
+        });
+      }
     } catch (err) {
       console.error("Upload pipeline error:", err);
 
@@ -450,6 +548,11 @@ uploads.get("/uploads/:id", authMiddleware, async (c) => {
     .from(campaignGroups)
     .where(eq(campaignGroups.uploadId, uploadId));
 
+  const overrides = await db
+    .select()
+    .from(guardrailOverrides)
+    .where(eq(guardrailOverrides.uploadId, uploadId));
+
   return c.json({
     id: upload.id,
     fileName: upload.fileName,
@@ -469,8 +572,183 @@ uploads.get("/uploads/:id", authMiddleware, async (c) => {
       status: g.status,
     })),
     errorMessage: upload.errorMessage,
+    guardrailResults: upload.guardrailResults,
+    overrides: overrides.map((o) => ({
+      id: o.id,
+      uploadId: o.uploadId,
+      campaignGroupId: o.campaignGroupId,
+      ruleId: o.ruleId,
+      ruleDescription: o.ruleDescription,
+      violationMessage: o.violationMessage,
+      reason: o.reason,
+      overriddenByUserId: o.overriddenByUserId,
+      overriddenByEmail: o.overriddenByEmail,
+      createdAt: o.createdAt?.toISOString() ?? "",
+    })),
     createdAt: upload.createdAt?.toISOString() ?? "",
   });
+});
+
+// GET /uploads — list all uploads for the company
+uploads.get("/uploads", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+
+  const allUploads = await db
+    .select()
+    .from(excelUploads)
+    .where(eq(excelUploads.companyId, auth.companyId))
+    .orderBy(excelUploads.createdAt);
+
+  return c.json({
+    uploads: allUploads.map((u) => ({
+      id: u.id,
+      fileName: u.fileName,
+      status: u.status,
+      totalRows: u.totalRows,
+      errorMessage: u.errorMessage,
+      guardrailResults: u.guardrailResults,
+      createdAt: u.createdAt?.toISOString() ?? "",
+    })),
+  });
+});
+
+// POST /uploads/:id/override — override a specific guardrail violation
+uploads.post("/uploads/:id/override", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const uploadId = c.req.param("id");
+
+  const body = await c.req.json();
+  const { campaignGroupId, ruleId, reason } = body;
+
+  if (!campaignGroupId || !ruleId || !reason) {
+    return c.json({ error: "campaignGroupId, ruleId, and reason are required" }, 400);
+  }
+
+  // Validate upload exists and belongs to company
+  const [upload] = await db
+    .select()
+    .from(excelUploads)
+    .where(
+      and(
+        eq(excelUploads.id, uploadId),
+        eq(excelUploads.companyId, auth.companyId),
+      ),
+    );
+
+  if (!upload) {
+    return c.json({ error: "Upload not found" }, 404);
+  }
+
+  if (upload.status !== "awaiting_review") {
+    return c.json({ error: "Upload is not awaiting review" }, 400);
+  }
+
+  // Validate the violation exists in guardrail results
+  const results = upload.guardrailResults as GuardrailValidationResult | null;
+  if (!results) {
+    return c.json({ error: "No guardrail results found" }, 400);
+  }
+
+  const campaignResult = results.results.find((r) => r.campaignGroupId === campaignGroupId);
+  if (!campaignResult) {
+    return c.json({ error: "Campaign group not found in guardrail results" }, 400);
+  }
+
+  const violation = campaignResult.violations.find((v) => v.ruleId === ruleId);
+  if (!violation) {
+    return c.json({ error: "Violation not found for this rule and campaign" }, 400);
+  }
+
+  // Check for existing override
+  const existing = await db
+    .select()
+    .from(guardrailOverrides)
+    .where(
+      and(
+        eq(guardrailOverrides.uploadId, uploadId),
+        eq(guardrailOverrides.campaignGroupId, campaignGroupId),
+        eq(guardrailOverrides.ruleId, ruleId),
+      ),
+    );
+
+  if (existing.length > 0) {
+    return c.json({ error: "This violation has already been overridden" }, 400);
+  }
+
+  // Create override record
+  const [override] = await db.insert(guardrailOverrides).values({
+    uploadId,
+    campaignGroupId,
+    ruleId,
+    ruleDescription: violation.ruleDescription,
+    violationMessage: violation.message,
+    reason,
+    overriddenByUserId: auth.userId,
+    overriddenByEmail: auth.email,
+  }).returning();
+
+  return c.json({
+    id: override.id,
+    campaignGroupId: override.campaignGroupId,
+    ruleId: override.ruleId,
+    reason: override.reason,
+    createdAt: override.createdAt?.toISOString() ?? "",
+  }, 201);
+});
+
+// POST /uploads/:id/approve — approve upload after all violations are overridden
+uploads.post("/uploads/:id/approve", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const uploadId = c.req.param("id");
+
+  // Validate upload exists and belongs to company
+  const [upload] = await db
+    .select()
+    .from(excelUploads)
+    .where(
+      and(
+        eq(excelUploads.id, uploadId),
+        eq(excelUploads.companyId, auth.companyId),
+      ),
+    );
+
+  if (!upload) {
+    return c.json({ error: "Upload not found" }, 404);
+  }
+
+  if (upload.status !== "awaiting_review") {
+    return c.json({ error: "Upload is not awaiting review" }, 400);
+  }
+
+  // Count total violations and overrides
+  const results = upload.guardrailResults as GuardrailValidationResult | null;
+  if (!results) {
+    return c.json({ error: "No guardrail results found" }, 400);
+  }
+
+  const totalViolations = results.results.reduce(
+    (sum, r) => sum + r.violations.length,
+    0,
+  );
+
+  const overrides = await db
+    .select()
+    .from(guardrailOverrides)
+    .where(eq(guardrailOverrides.uploadId, uploadId));
+
+  if (overrides.length < totalViolations) {
+    return c.json({
+      error: `Not all violations have been overridden (${overrides.length}/${totalViolations})`,
+    }, 400);
+  }
+
+  // Transition to completed
+  await db
+    .update(excelUploads)
+    .set({ status: "completed", updatedAt: new Date() })
+    .where(eq(excelUploads.id, uploadId));
+
+  return c.json({ success: true, status: "completed" });
 });
 
 export { uploads };

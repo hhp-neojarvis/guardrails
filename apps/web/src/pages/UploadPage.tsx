@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 import { useAuth } from "../hooks/useAuth";
 import { API_URL } from "../lib/api";
 import type {
@@ -7,10 +8,9 @@ import type {
   CampaignGroup,
   ThinkingEntry,
   ValidationResult,
-  LineItemConfig,
 } from "@guardrails/shared";
 
-type Stage = "idle" | "uploading" | "complete" | "error";
+type Stage = "idle" | "uploading" | "complete" | "awaiting_review" | "error";
 
 interface StageStatus {
   parsing: "pending" | "active" | "done" | "error";
@@ -18,10 +18,12 @@ interface StageStatus {
   interpreting: "pending" | "active" | "done" | "error";
   resolving: "pending" | "active" | "done" | "error";
   configuring: "pending" | "active" | "done" | "error";
+  guardrail_checking: "pending" | "active" | "done" | "error";
 }
 
 export function UploadPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   // Ad account selection
   const [accounts, setAccounts] = useState<MetaAdAccount[]>([]);
@@ -41,6 +43,7 @@ export function UploadPage() {
     interpreting: "pending",
     resolving: "pending",
     configuring: "pending",
+    guardrail_checking: "pending",
   });
   const [progressMessage, setProgressMessage] = useState("");
   const [progress, setProgress] = useState(0);
@@ -50,6 +53,7 @@ export function UploadPage() {
   const [thinkingLog, setThinkingLog] = useState<ThinkingEntry[]>([]);
   const [validationResult, setValidationResult] =
     useState<ValidationResult | null>(null);
+  const [uploadId, setUploadId] = useState<string | null>(null);
 
   // Fetch valid Meta accounts
   useEffect(() => {
@@ -125,6 +129,7 @@ export function UploadPage() {
       interpreting: "pending",
       resolving: "pending",
       configuring: "pending",
+      guardrail_checking: "pending",
     });
     setProgressMessage("Starting upload...");
     setProgress(0);
@@ -132,6 +137,7 @@ export function UploadPage() {
     setErrorMessage("");
     setThinkingLog([]);
     setValidationResult(null);
+    setUploadId(null);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -258,6 +264,33 @@ export function UploadPage() {
                     setGroups(event.data.groups);
                   }
                   break;
+                case "guardrail_checking":
+                  setStages((s) => ({
+                    ...s,
+                    configuring: "done",
+                    guardrail_checking: "active",
+                  }));
+                  break;
+                case "guardrail_checked":
+                  setStages((s) => ({ ...s, guardrail_checking: "done" }));
+                  break;
+                case "awaiting_review":
+                  setStage("awaiting_review");
+                  setStages({
+                    parsing: "done",
+                    validating: "done",
+                    interpreting: "done",
+                    resolving: "done",
+                    configuring: "done",
+                    guardrail_checking: "done",
+                  });
+                  if (event.data?.uploadId) {
+                    setUploadId(event.data.uploadId);
+                  }
+                  if (event.data?.groups) {
+                    setGroups(event.data.groups);
+                  }
+                  break;
                 case "complete":
                   setStage("complete");
                   setStages({
@@ -266,7 +299,11 @@ export function UploadPage() {
                     interpreting: "done",
                     resolving: "done",
                     configuring: "done",
+                    guardrail_checking: "done",
                   });
+                  if (event.data?.uploadId) {
+                    setUploadId(event.data.uploadId);
+                  }
                   if (event.data?.groups) {
                     setGroups(event.data.groups);
                   }
@@ -307,12 +344,14 @@ export function UploadPage() {
     setTotalRows(0);
     setThinkingLog([]);
     setValidationResult(null);
+    setUploadId(null);
     setStages({
       parsing: "pending",
       validating: "pending",
       interpreting: "pending",
       resolving: "pending",
       configuring: "pending",
+      guardrail_checking: "pending",
     });
   }, []);
 
@@ -457,6 +496,10 @@ export function UploadPage() {
             label="Configuring Campaigns"
             status={stages.configuring}
           />
+          <StageIndicator
+            label="Checking Guardrails"
+            status={stages.guardrail_checking}
+          />
         </div>
 
         {/* Validation errors */}
@@ -558,205 +601,49 @@ export function UploadPage() {
     );
   }
 
-  // Complete — campaign preview
-  const totalResolved = groups.reduce(
-    (sum, g) => sum + (g.resolvedGeoTargets?.length ?? 0),
-    0,
-  );
-  const totalUnresolved = groups.reduce(
-    (sum, g) => sum + (g.unresolvedIntents?.length ?? 0),
-    0,
-  );
-
+  // Complete or awaiting review — redirect to job detail
   return (
     <div>
       <div className="upload-header">
-        <h1>Campaign Preview</h1>
+        <h1>
+          {stage === "awaiting_review"
+            ? "Guardrail Violations Found"
+            : "Processing Complete"}
+        </h1>
         <p className="upload-subtitle">{file?.name}</p>
       </div>
 
-      {/* Summary bar */}
-      <div className="upload-summary">
-        <div className="upload-summary-item">
-          <span className="upload-summary-value">{totalRows}</span>
-          <span className="upload-summary-label">Rows</span>
+      <div className="upload-complete-card">
+        <div className="upload-complete-icon">
+          {stage === "awaiting_review" ? "\u26A0" : "\u2713"}
         </div>
-        <div className="upload-summary-item">
-          <span className="upload-summary-value">{groups.length}</span>
-          <span className="upload-summary-label">Campaigns</span>
+        <div className="upload-complete-info">
+          <p className="upload-complete-title">
+            {stage === "awaiting_review"
+              ? "Your media plan has guardrail violations that need review."
+              : "Your media plan has been processed successfully."}
+          </p>
+          <p className="upload-complete-subtitle">
+            {totalRows} rows, {groups.length} campaign{groups.length !== 1 ? "s" : ""}
+          </p>
         </div>
-        <div className="upload-summary-item">
-          <span className="upload-summary-value">{totalResolved}</span>
-          <span className="upload-summary-label">Geo Targets</span>
+        <div className="upload-complete-actions">
+          {uploadId && (
+            <button
+              className="btn btn-primary"
+              onClick={() => navigate(`/jobs/${uploadId}`)}
+            >
+              {stage === "awaiting_review"
+                ? "Review Violations"
+                : "View Job Details"}
+            </button>
+          )}
+          <button className="btn" onClick={handleRetry}>
+            Upload Another
+          </button>
         </div>
-        {totalUnresolved > 0 && (
-          <div className="upload-summary-item upload-summary-warning">
-            <span className="upload-summary-value">{totalUnresolved}</span>
-            <span className="upload-summary-label">Unresolved</span>
-          </div>
-        )}
-      </div>
-
-      {/* Campaign group cards */}
-      <div className="upload-groups">
-        {groups.map((group, i) => (
-          <div key={i} className="upload-group-card">
-            <div className="upload-group-header">
-              <div>
-                <h3 className="upload-group-name">{group.campaignName}</h3>
-                <div className="upload-group-meta">
-                  <span>Markets: {group.markets}</span>
-                  <span>Channel: {group.channel}</span>
-                  <span>{group.lineItems?.length ?? 0} line items</span>
-                  {group.frequencyCap && group.frequencyIntervalDays && (
-                    <span>
-                      Frequency: {group.frequencyCap} times every{" "}
-                      {group.frequencyIntervalDays} days
-                    </span>
-                  )}
-                </div>
-              </div>
-              <span
-                className={`badge ${group.status === "resolved" ? "badge-success" : group.status === "error" ? "badge-error" : group.status === "unsupported" ? "badge-warning" : ""}`}
-              >
-                {group.status === "unsupported" ? "unsupported channel" : group.status}
-              </span>
-            </div>
-
-            {/* Resolved geo targets */}
-            {group.resolvedGeoTargets && group.resolvedGeoTargets.length > 0 && (
-              <div className="upload-group-section">
-                <div className="upload-group-section-header">
-                  Resolved Geo Targets
-                </div>
-                <div className="upload-geo-tags">
-                  {group.resolvedGeoTargets.map((geo, j) => (
-                    <span key={j} className="upload-geo-tag">
-                      {geo.name}
-                      <span className="upload-geo-tag-type">{geo.type}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Unresolved warnings */}
-            {group.unresolvedIntents && group.unresolvedIntents.length > 0 && (
-              <div className="upload-group-section upload-group-warnings">
-                <div className="upload-group-section-header">
-                  Unresolved ({group.unresolvedIntents.length})
-                </div>
-                {group.unresolvedIntents.map((u, j) => (
-                  <div key={j} className="upload-warning-item">
-                    <span className="upload-warning-icon">&#9888;</span>
-                    <span>
-                      {u.intent.name} ({u.intent.type}) — {u.reason}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Line items table */}
-            {group.lineItems && group.lineItems.length > 0 && (
-              <div className="upload-group-section">
-                <div className="upload-group-section-header">Line Items</div>
-                <div className="upload-table-wrapper">
-                  <table className="upload-table">
-                    <thead>
-                      <tr>
-                        <th>Targeting</th>
-                        <th>Buy Type</th>
-                        <th>Asset</th>
-                        <th>Inventory</th>
-                        <th>Budget</th>
-                        <th>Start</th>
-                        <th>End</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.lineItems.map((item, k) => {
-                        const config = group.lineItemConfigs?.[k];
-                        return (
-                          <tr key={k}>
-                            <td>
-                              {item.targeting || "—"}
-                              {config?.targeting && (
-                                <div className="upload-interpreted">
-                                  Age: {config.targeting.ageMin}-{config.targeting.ageMax}, Gender: {config.targeting.genders.length === 2 ? "M+F" : config.targeting.genders[0] === 1 ? "M" : "F"}
-                                </div>
-                              )}
-                              <ConfigWarnings config={config} field="targeting" />
-                            </td>
-                            <td>
-                              {item.buyType || "—"}
-                              {config?.buyType && (
-                                <div className="upload-interpreted">
-                                  {config.buyType.buyingType}
-                                </div>
-                              )}
-                              <ConfigWarnings config={config} field="buyType" />
-                            </td>
-                            <td>
-                              {item.asset || "—"}
-                              {config?.asset && (
-                                <div className="upload-interpreted">
-                                  {config.asset.format}{config.asset.videoDurationSeconds ? ` (${config.asset.videoDurationSeconds}s)` : ""}
-                                </div>
-                              )}
-                              <ConfigWarnings config={config} field="asset" />
-                            </td>
-                            <td>
-                              {item.inventory || "—"}
-                              {config?.inventory && (
-                                <div className="upload-interpreted">
-                                  {config.inventory.facebookPositions ? `fb: ${config.inventory.facebookPositions.join(", ")}` : ""}
-                                  {config.inventory.facebookPositions && config.inventory.instagramPositions ? " | " : ""}
-                                  {config.inventory.instagramPositions ? `ig: ${config.inventory.instagramPositions.join(", ")}` : ""}
-                                </div>
-                              )}
-                              <ConfigWarnings config={config} field="inventory" />
-                            </td>
-                            <td>{item.budget || "—"}</td>
-                            <td>{item.startDate || "—"}</td>
-                            <td>{item.endDate || "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Actions */}
-      <div className="upload-actions">
-        <button className="btn" onClick={handleRetry}>
-          Upload Another
-        </button>
       </div>
     </div>
-  );
-}
-
-// ── Config warnings component ──
-function ConfigWarnings({ config, field }: { config?: LineItemConfig; field: string }) {
-  if (!config?.warnings.length) return null;
-  const relevant = config.warnings.filter((w) =>
-    w.toLowerCase().includes(field.toLowerCase().replace("buytype", "buy type")),
-  );
-  if (relevant.length === 0) return null;
-  return (
-    <>
-      {relevant.map((w, i) => (
-        <div key={i} className="upload-interpreted upload-interpreted-warn">
-          {w}
-        </div>
-      ))}
-    </>
   );
 }
 

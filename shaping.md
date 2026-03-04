@@ -294,7 +294,7 @@ Rows sharing the same **Markets + Channel** = one campaign. Rows within that gro
 | **V1** | **Excel → Geo Resolution** | A1 + A2 (geo only) | Upload Excel, see campaigns with resolved geo targets |
 | **V2** | **Full Interpretation** | A2 (all columns) | See fully structured campaign configs |
 | **V3** | **Guardrail Setup** | A3 | Describe mistakes, see generated rules, edit, save |
-| **V4** | **Validation + Preview** | A4 + A5 + A8 | Preview with pass/warn, override with logging |
+| **V4** | **Validation + Preview + Override** | A4 + A5 + A8 | Job-based pipeline with guardrail validation, pause on violations, per-rule per-campaign override with audit logging |
 | **V5** | **Draft Creation** | A6 | PAUSED campaigns appear in Meta Ads Manager |
 | **V6** | **Publish** | A7 | Publish from tool, verify live in Meta |
 

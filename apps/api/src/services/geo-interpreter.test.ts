@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { interpretGeoFromMarkets, _setOpenAIClient } from "./geo-interpreter";
+import { interpretGeoFromMarkets } from "./geo-interpreter";
+import { _setOpenAIClient } from "../lib/llm.js";
+
+// Mock the DB module so getLLMConfig doesn't hit a real database
+vi.mock("@guardrails/db", () => ({
+  db: { select: () => ({ from: () => ({ where: () => [] }) }) },
+  llmConfigs: {},
+  eq: () => {},
+  and: () => {},
+  isNull: () => {},
+}));
 
 // Mock OpenAI client
 function createMockClient(response: string) {
@@ -22,7 +32,6 @@ function createMockClient(response: string) {
 
 beforeEach(() => {
   process.env.OPENAI_API_KEY = "test-key";
-  process.env.OPENAI_MODEL = "gpt-4o-mini";
 });
 
 afterEach(() => {
@@ -129,7 +138,6 @@ describe("interpretGeoFromMarkets", () => {
 
     expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "gpt-4o-mini",
         temperature: 0,
         response_format: { type: "json_object" },
         messages: expect.arrayContaining([

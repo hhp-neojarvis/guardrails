@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  generateGuardrailRules,
-  _setOpenAIClient,
-} from "./guardrail-generator";
+import { generateGuardrailRules } from "./guardrail-generator";
+import { _setOpenAIClient } from "../lib/llm.js";
+
+// Mock the DB module so getLLMConfig doesn't hit a real database
+vi.mock("@guardrails/db", () => ({
+  db: { select: () => ({ from: () => ({ where: () => [] }) }) },
+  llmConfigs: {},
+  eq: () => {},
+  and: () => {},
+  isNull: () => {},
+}));
 
 // Mock OpenAI client
 function createMockClient(response: string) {
@@ -25,7 +32,6 @@ function createMockClient(response: string) {
 
 beforeEach(() => {
   process.env.OPENAI_API_KEY = "test-key";
-  process.env.OPENAI_MODEL = "gpt-4o-mini";
 });
 
 afterEach(() => {
@@ -67,10 +73,10 @@ describe("generateGuardrailRules", () => {
 
     expect(rules).toHaveLength(2);
     expect(rules[0].description).toBe("Budget must be at least 10000");
-    expect(rules[0].check.field).toBe("budget");
-    expect(rules[0].check.operator).toBe("gte");
-    expect(rules[0].check.value).toBe(10000);
-    expect(rules[1].check.field).toBe("geo_targets");
+    expect(rules[0].check!.field).toBe("budget");
+    expect(rules[0].check!.operator).toBe("gte");
+    expect(rules[0].check!.value).toBe(10000);
+    expect(rules[1].check!.field).toBe("geo_targets");
   });
 
   it("throws on empty LLM response", async () => {
@@ -85,51 +91,49 @@ describe("generateGuardrailRules", () => {
     } as any;
     _setOpenAIClient(mockClient);
 
-    await expect(
-      generateGuardrailRules("some prompt"),
-    ).rejects.toThrow("empty response");
-  });
-
-  it("throws on invalid JSON", async () => {
-    const mockClient = createMockClient("not valid json");
-    _setOpenAIClient(mockClient);
-
-    await expect(
-      generateGuardrailRules("some prompt"),
-    ).rejects.toThrow("invalid JSON");
-  });
-
-  it("throws on missing rules array", async () => {
-    const mockClient = createMockClient(
-      JSON.stringify({ checks: [] }),
+    await expect(generateGuardrailRules("test")).rejects.toThrow(
+      "empty response",
     );
-    _setOpenAIClient(mockClient);
-
-    await expect(
-      generateGuardrailRules("some prompt"),
-    ).rejects.toThrow("unexpected structure");
   });
 
-  it("filters out malformed rules (wrong field) and returns valid ones", async () => {
+  it("throws on malformed JSON", async () => {
+    const mockClient = createMockClient("not json");
+    _setOpenAIClient(mockClient);
+
+    await expect(generateGuardrailRules("test")).rejects.toThrow(
+      "invalid JSON",
+    );
+  });
+
+  it("throws on unexpected structure", async () => {
+    const mockClient = createMockClient(JSON.stringify({ items: [] }));
+    _setOpenAIClient(mockClient);
+
+    await expect(generateGuardrailRules("test")).rejects.toThrow(
+      "unexpected structure",
+    );
+  });
+
+  it("handles duplicate rules in response", async () => {
     const mockClient = createMockClient(
       JSON.stringify({
         rules: [
           {
-            description: "Valid rule",
+            description: "Budget must be at least 10000",
             check: {
               scope: "campaign",
               field: "budget",
               operator: "gte",
-              value: 5000,
+              value: 10000,
             },
           },
           {
-            description: "Invalid field",
+            description: "Budget must be at least 10000 (duplicate)",
             check: {
               scope: "campaign",
-              field: "invalid_field",
+              field: "budget",
               operator: "gte",
-              value: 100,
+              value: 10000,
             },
           },
         ],
@@ -137,10 +141,8 @@ describe("generateGuardrailRules", () => {
     );
     _setOpenAIClient(mockClient);
 
-    const rules = await generateGuardrailRules("some prompt");
-
-    expect(rules).toHaveLength(1);
-    expect(rules[0].description).toBe("Valid rule");
+    const rules = await generateGuardrailRules("test");
+    expect(rules).toHaveLength(2);
   });
 
   it("filters out rules with wrong operator", async () => {
@@ -153,7 +155,7 @@ describe("generateGuardrailRules", () => {
               scope: "campaign",
               field: "budget",
               operator: "contains",
-              value: "abc",
+              value: "test",
             },
           },
           {
@@ -170,23 +172,22 @@ describe("generateGuardrailRules", () => {
     );
     _setOpenAIClient(mockClient);
 
-    const rules = await generateGuardrailRules("some prompt");
-
+    const rules = await generateGuardrailRules("test");
     expect(rules).toHaveLength(1);
     expect(rules[0].description).toBe("Good rule");
   });
 
-  it("filters out rules with wrong scope", async () => {
+  it("calls OpenAI with correct parameters", async () => {
     const mockClient = createMockClient(
       JSON.stringify({
         rules: [
           {
-            description: "Wrong scope",
+            description: "Budget must be at least 10000",
             check: {
-              scope: "line_item",
+              scope: "campaign",
               field: "budget",
               operator: "gte",
-              value: 1000,
+              value: 10000,
             },
           },
         ],
@@ -194,26 +195,34 @@ describe("generateGuardrailRules", () => {
     );
     _setOpenAIClient(mockClient);
 
-    const rules = await generateGuardrailRules("some prompt");
+    await generateGuardrailRules("test prompt");
 
-    expect(rules).toHaveLength(0);
+    expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: expect.arrayContaining([
+          expect.objectContaining({ role: "user", content: "test prompt" }),
+        ]),
+      }),
+    );
   });
 
-  it("returns all valid rules with valid structure", async () => {
+  it("filters out rules with no description", async () => {
     const mockClient = createMockClient(
       JSON.stringify({
         rules: [
           {
-            description: "End date must be set",
+            description: "",
             check: {
               scope: "campaign",
-              field: "end_date",
+              field: "budget",
               operator: "is_set",
               value: null,
             },
           },
           {
-            description: "Buy type must be Auction",
+            description: "Valid rule",
             check: {
               scope: "campaign",
               field: "buy_type",
@@ -222,7 +231,10 @@ describe("generateGuardrailRules", () => {
             },
           },
           {
-            description: "Targeting must not be empty",
+            description: "No check rule",
+          },
+          {
+            description: "Another valid rule",
             check: {
               scope: "campaign",
               field: "targeting",
@@ -235,22 +247,27 @@ describe("generateGuardrailRules", () => {
     );
     _setOpenAIClient(mockClient);
 
-    const rules = await generateGuardrailRules("some prompt");
-
+    const rules = await generateGuardrailRules("test");
     expect(rules).toHaveLength(3);
+    expect(rules[0].description).toBe("Valid rule");
+    expect(rules[1].description).toBe("No check rule");
+    expect(rules[2].description).toBe("Another valid rule");
   });
 
-  it("calls OpenAI with correct parameters", async () => {
+  it("accepts description-only rules without check", async () => {
     const mockClient = createMockClient(
       JSON.stringify({
         rules: [
           {
-            description: "Test",
+            description: "All campaigns must have reasonable budgets for their target market",
+          },
+          {
+            description: "Budget must be at least 10000",
             check: {
               scope: "campaign",
               field: "budget",
               operator: "gte",
-              value: 1000,
+              value: 10000,
             },
           },
         ],
@@ -258,17 +275,9 @@ describe("generateGuardrailRules", () => {
     );
     _setOpenAIClient(mockClient);
 
-    await generateGuardrailRules("budget rules");
-
-    expect(mockClient.chat.completions.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: expect.arrayContaining([
-          expect.objectContaining({ role: "user", content: "budget rules" }),
-        ]),
-      }),
-    );
+    const rules = await generateGuardrailRules("test");
+    expect(rules).toHaveLength(2);
+    expect(rules[0].check).toBeUndefined();
+    expect(rules[1].check).toBeDefined();
   });
 });

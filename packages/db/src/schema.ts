@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, real, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -58,6 +58,7 @@ export const excelUploads = pgTable("excel_uploads", {
   totalRows: integer("total_rows"),
   rawData: jsonb("raw_data"),
   errorMessage: text("error_message"),
+  guardrailResults: jsonb("guardrail_results"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -105,6 +106,48 @@ export const geoCache = pgTable(
   (table) => [unique().on(table.query, table.locationType, table.countryCode)],
 );
 
+// ─── V4: Guardrail Overrides (Audit Log) ────────────────────────────────────
+
+export const guardrailOverrides = pgTable("guardrail_overrides", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  uploadId: uuid("upload_id")
+    .notNull()
+    .references(() => excelUploads.id),
+  campaignGroupId: uuid("campaign_group_id")
+    .notNull()
+    .references(() => campaignGroups.id),
+  ruleId: uuid("rule_id")
+    .notNull()
+    .references(() => guardrails.id),
+  ruleDescription: text("rule_description").notNull(),
+  violationMessage: text("violation_message").notNull(),
+  reason: text("reason").notNull(),
+  overriddenByUserId: text("overridden_by_user_id").notNull(),
+  overriddenByEmail: text("overridden_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ─── LLM Configs ────────────────────────────────────────────────────────────
+
+export const llmConfigs = pgTable(
+  "llm_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id").references(() => companies.id),
+    workflow: text("workflow").notNull(), // "geo_interpretation" | "guardrail_generation" | "guardrail_validation"
+    model: text("model").notNull().default("gpt-4o-mini"),
+    baseUrl: text("base_url"),
+    encryptedApiKey: text("encrypted_api_key"),
+    apiKeyIv: text("api_key_iv"),
+    systemPrompt: text("system_prompt").notNull(),
+    temperature: real("temperature").notNull().default(0),
+    maxTokens: integer("max_tokens"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [unique().on(table.companyId, table.workflow)],
+);
+
 // ─── V3: Guardrails ──────────────────────────────────────────────────────────
 
 export const guardrails = pgTable("guardrails", {
@@ -113,7 +156,7 @@ export const guardrails = pgTable("guardrails", {
     .notNull()
     .references(() => companies.id),
   description: text("description").notNull(),
-  check: jsonb("check").notNull(), // stores GuardrailCheck object
+  check: jsonb("check").default({}), // stores GuardrailCheck object (optional for LLM-based validation)
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

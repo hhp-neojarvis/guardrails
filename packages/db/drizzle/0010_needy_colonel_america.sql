@@ -1,0 +1,1 @@
+ALTER TABLE "llm_configs" ADD COLUMN "base_url" text;

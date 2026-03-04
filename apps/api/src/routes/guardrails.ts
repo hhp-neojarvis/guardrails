@@ -26,7 +26,7 @@ guardrailRoutes.get("/", authMiddleware, async (c) => {
       id: r.id,
       companyId: r.companyId,
       description: r.description,
-      check: r.check as GuardrailCheck,
+      check: r.check as GuardrailCheck | undefined,
       active: r.active,
       createdAt: r.createdAt?.toISOString() ?? "",
       updatedAt: r.updatedAt?.toISOString() ?? "",
@@ -39,8 +39,8 @@ guardrailRoutes.post("/", authMiddleware, async (c) => {
   const auth = c.get("auth");
   const body = await c.req.json<CreateGuardrailRequest>();
 
-  if (!body.description || !body.check) {
-    return c.json({ error: "description and check are required" }, 400);
+  if (!body.description) {
+    return c.json({ error: "description is required" }, 400);
   }
 
   const [row] = await db
@@ -57,7 +57,7 @@ guardrailRoutes.post("/", authMiddleware, async (c) => {
       id: row.id,
       companyId: row.companyId,
       description: row.description,
-      check: row.check as GuardrailCheck,
+      check: row.check as GuardrailCheck | undefined,
       active: row.active,
       createdAt: row.createdAt?.toISOString() ?? "",
       updatedAt: row.updatedAt?.toISOString() ?? "",
@@ -92,7 +92,7 @@ guardrailRoutes.post("/batch", authMiddleware, async (c) => {
         id: r.id,
         companyId: r.companyId,
         description: r.description,
-        check: r.check as GuardrailCheck,
+        check: r.check as GuardrailCheck | undefined,
         active: r.active,
         createdAt: r.createdAt?.toISOString() ?? "",
         updatedAt: r.updatedAt?.toISOString() ?? "",
@@ -162,6 +162,7 @@ guardrailRoutes.delete("/:id", authMiddleware, async (c) => {
 
 // POST /generate — SSE stream: LLM generates rules
 guardrailRoutes.post("/generate", authMiddleware, async (c) => {
+  const auth = c.get("auth");
   const body = await c.req.json<{ prompt: string }>();
 
   if (!body.prompt || typeof body.prompt !== "string" || !body.prompt.trim()) {
@@ -182,7 +183,7 @@ guardrailRoutes.post("/generate", authMiddleware, async (c) => {
         message: "Analyzing your description...",
       });
 
-      const rules = await generateGuardrailRules(body.prompt);
+      const rules = await generateGuardrailRules(body.prompt, auth.companyId);
 
       for (const rule of rules) {
         await sendEvent({

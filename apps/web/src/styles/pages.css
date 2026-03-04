@@ -1579,3 +1579,302 @@
 .guardrail-remove-btn:hover {
   color: var(--color-error);
 }
+
+/* ===== Upload completion card ===== */
+
+.upload-complete-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-6);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  max-width: 500px;
+  text-align: center;
+}
+
+.upload-complete-icon {
+  font-size: 2.5rem;
+}
+
+.upload-complete-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.upload-complete-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+}
+
+.upload-complete-subtitle {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.upload-complete-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* Interpreted config values */
+.upload-interpreted {
+  font-size: 0.625rem;
+  color: var(--color-primary-600);
+  margin-top: 2px;
+}
+
+.upload-interpreted-warn {
+  color: var(--color-warning);
+}
+
+/* ===== Jobs page ===== */
+
+.jobs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-16) var(--space-8);
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+
+.jobs-list {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.jobs-table th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.jobs-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text-primary);
+}
+
+.jobs-table tr:last-child td {
+  border-bottom: none;
+}
+
+.jobs-row {
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-in-out);
+}
+
+.jobs-row:hover {
+  background: var(--color-bg-secondary);
+}
+
+.jobs-filename {
+  font-weight: var(--font-medium);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jobs-violations {
+  color: var(--color-error);
+  font-weight: var(--font-semibold);
+}
+
+.jobs-date {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+/* ===== Job detail page ===== */
+
+.job-detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.job-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.job-detail-date {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.job-processing {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-primary-50);
+  border: 1px solid var(--color-primary-100);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--color-primary-700);
+}
+
+.job-processing-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-primary-100);
+  border-top-color: var(--color-primary-600);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Guardrail section */
+.job-guardrail-section {
+  margin-bottom: var(--space-6);
+}
+
+.job-guardrail-section h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-4);
+}
+
+.job-guardrail-card {
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.job-guardrail-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.job-guardrail-card-header h3 {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+}
+
+.job-guardrail-violations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.job-violation {
+  padding: var(--space-3);
+  border: 1px solid #FECACA;
+  border-radius: var(--radius-md);
+  background: #FEF2F2;
+}
+
+.job-violation-overridden {
+  border-color: var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.job-violation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.job-violation-info {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.job-violation-icon {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  width: 18px;
+  text-align: center;
+  margin-top: 1px;
+}
+
+.job-violation-rule {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  margin-bottom: 2px;
+}
+
+.job-violation-message {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.job-violation-meta {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.job-violation-overridden-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.job-override-detail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+
+.job-override-form {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-light);
+}
+
+.job-override-form-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.job-approve-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}

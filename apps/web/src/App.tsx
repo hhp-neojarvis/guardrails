@@ -10,6 +10,8 @@ import { UserManagementPage } from "./pages/UserManagementPage";
 import { MetaAccountsPage } from "./pages/MetaAccountsPage";
 import { UploadPage } from "./pages/UploadPage";
 import { GuardrailsPage } from "./pages/GuardrailsPage";
+import { JobsPage } from "./pages/JobsPage";
+import { JobDetailPage } from "./pages/JobDetailPage";
 import { Layout } from "./components/Layout";
 
 export function AppRoutes() {
@@ -51,6 +53,20 @@ export function AppRoutes() {
           <ProtectedRoute>
             <Layout>
               <GuardrailsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/jobs" element={
+          <ProtectedRoute>
+            <Layout>
+              <JobsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/jobs/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <JobDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

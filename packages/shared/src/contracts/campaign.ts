@@ -104,7 +104,7 @@ export interface CampaignGroup {
 }
 
 // ─── Pipeline Stages & Thinking ──────────────────────────────────────────────
-export type PipelineStage = 'parsing' | 'validating' | 'interpreting' | 'resolving' | 'configuring';
+export type PipelineStage = 'parsing' | 'validating' | 'interpreting' | 'resolving' | 'configuring' | 'guardrail_checking';
 
 export interface ThinkingEntry {
   stage: PipelineStage;
@@ -139,6 +139,9 @@ export type PipelineEventType =
   | 'resolved'
   | 'configuring'
   | 'configured'
+  | 'guardrail_checking'
+  | 'guardrail_checked'
+  | 'awaiting_review'
   | 'complete'
   | 'error';
 
@@ -154,6 +157,8 @@ export interface PipelineEvent {
     error?: string;
     thinking?: ThinkingEntry;
     validation?: ValidationResult;
+    guardrailResults?: import('./guardrail').GuardrailValidationResult;
+    uploadId?: string;
   };
 }
 
@@ -161,9 +166,10 @@ export interface PipelineEvent {
 export interface UploadPreviewResponse {
   id: string;
   fileName: string;
-  status: 'processing' | 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error' | 'awaiting_review';
   totalRows: number;
   groups: CampaignGroup[];
   errorMessage?: string;
+  guardrailResults?: import('./guardrail').GuardrailValidationResult;
   createdAt: string;
 }

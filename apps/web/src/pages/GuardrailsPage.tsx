@@ -318,13 +318,15 @@ export function GuardrailsPage() {
                     <p className="guardrail-card-description">
                       {rule.description}
                     </p>
-                    <div className="guardrail-card-badges">
-                      <span className="badge">{getFieldLabel(rule.check.field)}</span>
-                      <span className="badge">{getOperatorLabel(rule.check.operator)}</span>
-                      {rule.check.value !== null && rule.check.value !== undefined && (
-                        <span className="badge">{formatValue(rule.check.value)}</span>
-                      )}
-                    </div>
+                    {rule.check?.field && (
+                      <div className="guardrail-card-badges">
+                        <span className="badge">{getFieldLabel(rule.check.field)}</span>
+                        <span className="badge">{getOperatorLabel(rule.check.operator)}</span>
+                        {rule.check.value !== null && rule.check.value !== undefined && (
+                          <span className="badge">{formatValue(rule.check.value)}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="guardrail-card-actions">
                     <label className="guardrail-toggle" title={rule.active ? "Active" : "Inactive"}>
@@ -439,13 +441,15 @@ export function GuardrailsPage() {
                         <p className="guardrail-card-description">
                           {rule.description}
                         </p>
-                        <div className="guardrail-card-badges">
-                          <span className="badge">{getFieldLabel(rule.check.field)}</span>
-                          <span className="badge">{getOperatorLabel(rule.check.operator)}</span>
-                          {rule.check.value !== null && rule.check.value !== undefined && (
-                            <span className="badge">{formatValue(rule.check.value)}</span>
-                          )}
-                        </div>
+                        {rule.check?.field && (
+                          <div className="guardrail-card-badges">
+                            <span className="badge">{getFieldLabel(rule.check.field)}</span>
+                            <span className="badge">{getOperatorLabel(rule.check.operator)}</span>
+                            {rule.check.value !== null && rule.check.value !== undefined && (
+                              <span className="badge">{formatValue(rule.check.value)}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -507,13 +511,15 @@ export function GuardrailsPage() {
                         handleUpdateReviewDescription(i, e.target.value)
                       }
                     />
-                    <div className="guardrail-card-badges">
-                      <span className="badge">{getFieldLabel(rule.check.field)}</span>
-                      <span className="badge">{getOperatorLabel(rule.check.operator)}</span>
-                      {rule.check.value !== null && rule.check.value !== undefined && (
-                        <span className="badge">{formatValue(rule.check.value)}</span>
-                      )}
-                    </div>
+                    {rule.check?.field && (
+                      <div className="guardrail-card-badges">
+                        <span className="badge">{getFieldLabel(rule.check.field)}</span>
+                        <span className="badge">{getOperatorLabel(rule.check.operator)}</span>
+                        {rule.check.value !== null && rule.check.value !== undefined && (
+                          <span className="badge">{formatValue(rule.check.value)}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <button
                     className="btn-ghost guardrail-remove-btn"
