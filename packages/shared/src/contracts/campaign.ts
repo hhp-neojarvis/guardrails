@@ -55,10 +55,14 @@ export interface CampaignGroup {
   channel: string;
   campaignName: string;
   lineItems: ExcelRow[];
+  /** Meta frequency control: impressions cap (from avgFrequency) */
+  frequencyCap?: number;
+  /** Meta frequency control: interval in days (endDate − startDate) */
+  frequencyIntervalDays?: number;
   geoIntents: GeoIntent[];
   resolvedGeoTargets: ResolvedGeoTarget[];
   unresolvedIntents: Array<{ intent: GeoIntent; reason: string }>;
-  status: 'pending' | 'processing' | 'resolved' | 'error';
+  status: 'pending' | 'processing' | 'resolved' | 'error' | 'unsupported';
 }
 
 // ─── Pipeline Stages & Thinking ──────────────────────────────────────────────

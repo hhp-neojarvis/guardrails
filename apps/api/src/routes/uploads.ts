@@ -170,12 +170,17 @@ uploads.post("/upload", authMiddleware, async (c) => {
         status: "info",
       });
 
+      const supportedGroups = groups.filter((g) => g.status !== "unsupported");
+      const unsupportedGroups = groups.filter((g) => g.status === "unsupported");
+
       for (const group of groups) {
         await sendThinking({
           stage: "parsing",
           subject: group.campaignName,
-          message: `Group '${group.markets} - ${group.channel}': ${group.lineItems.length} line items`,
-          status: "info",
+          message: group.status === "unsupported"
+            ? `Group '${group.markets} - ${group.channel}': ${group.lineItems.length} line items (unsupported channel — skipped)`
+            : `Group '${group.markets} - ${group.channel}': ${group.lineItems.length} line items`,
+          status: group.status === "unsupported" ? "warn" : "info",
         });
       }
 
@@ -185,8 +190,8 @@ uploads.post("/upload", authMiddleware, async (c) => {
         message: "Interpreting geographic targets...",
       });
 
-      // Deduplicate Markets values before LLM calls
-      const uniqueMarkets = [...new Set(groups.map((g) => g.markets))];
+      // Deduplicate Markets values before LLM calls (only from supported groups)
+      const uniqueMarkets = [...new Set(supportedGroups.map((g) => g.markets))];
       const marketsToIntents = new Map<string, CampaignGroup["geoIntents"]>();
 
       for (const markets of uniqueMarkets) {
@@ -218,8 +223,8 @@ uploads.post("/upload", authMiddleware, async (c) => {
         }
       }
 
-      // Assign intents to groups
-      for (const group of groups) {
+      // Assign intents to supported groups only
+      for (const group of supportedGroups) {
         group.geoIntents = marketsToIntents.get(group.markets) ?? [];
       }
 
@@ -235,8 +240,8 @@ uploads.post("/upload", authMiddleware, async (c) => {
         message: "Resolving geo targets against Meta API...",
       });
 
-      for (let i = 0; i < groups.length; i++) {
-        const group = groups[i];
+      for (let i = 0; i < supportedGroups.length; i++) {
+        const group = supportedGroups[i];
 
         if (group.geoIntents.length === 0) {
           group.status = "resolved";
@@ -254,7 +259,7 @@ uploads.post("/upload", authMiddleware, async (c) => {
           message: `Resolving geo for "${group.markets}"...`,
           data: {
             currentGroup: group.markets,
-            progress: Math.round(((i + 1) / groups.length) * 100),
+            progress: Math.round(((i + 1) / supportedGroups.length) * 100),
           },
         });
 

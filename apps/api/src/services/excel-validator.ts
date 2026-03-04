@@ -125,7 +125,7 @@ export async function validateRows(
       rowValid = false;
     }
 
-    // Channel non-empty
+    // Channel non-empty and must be Meta
     if (!row.channel || !row.channel.trim()) {
       issues.push({
         row: rowNum,
@@ -134,6 +134,13 @@ export async function validateRows(
         severity: "error",
       });
       rowValid = false;
+    } else if (!row.channel.trim().toLowerCase().startsWith("meta")) {
+      issues.push({
+        row: rowNum,
+        field: "channel",
+        message: `Row ${rowNum}: Channel "${row.channel}" is not supported — only Meta campaigns are currently supported`,
+        severity: "warning",
+      });
     }
 
     // Budget is valid positive number (if present)
@@ -150,7 +157,7 @@ export async function validateRows(
       }
     }
 
-    // Dates are valid and start <= end
+    // Dates are valid, start >= today, and end > start
     if (row.startDate && row.startDate.trim()) {
       const start = new Date(row.startDate);
       if (isNaN(start.getTime())) {
@@ -161,6 +168,19 @@ export async function validateRows(
           severity: "error",
         });
         rowValid = false;
+      } else {
+        // Start date must be today or in the future
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (start < today) {
+          issues.push({
+            row: rowNum,
+            field: "startDate",
+            message: `Row ${rowNum}: Start date "${row.startDate}" is in the past`,
+            severity: "error",
+          });
+          rowValid = false;
+        }
       }
 
       if (row.endDate && row.endDate.trim()) {
@@ -173,11 +193,11 @@ export async function validateRows(
             severity: "error",
           });
           rowValid = false;
-        } else if (!isNaN(start.getTime()) && start > end) {
+        } else if (!isNaN(start.getTime()) && end <= start) {
           issues.push({
             row: rowNum,
             field: "endDate",
-            message: `Row ${rowNum}: Start date is after end date`,
+            message: `Row ${rowNum}: End date must be after start date`,
             severity: "error",
           });
           rowValid = false;

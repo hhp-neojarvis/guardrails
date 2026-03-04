@@ -585,12 +585,18 @@ export function UploadPage() {
                   <span>Markets: {group.markets}</span>
                   <span>Channel: {group.channel}</span>
                   <span>{group.lineItems?.length ?? 0} line items</span>
+                  {group.frequencyCap && group.frequencyIntervalDays && (
+                    <span>
+                      Frequency: {group.frequencyCap} times every{" "}
+                      {group.frequencyIntervalDays} days
+                    </span>
+                  )}
                 </div>
               </div>
               <span
-                className={`badge ${group.status === "resolved" ? "badge-success" : group.status === "error" ? "badge-error" : ""}`}
+                className={`badge ${group.status === "resolved" ? "badge-success" : group.status === "error" ? "badge-error" : group.status === "unsupported" ? "badge-warning" : ""}`}
               >
-                {group.status}
+                {group.status === "unsupported" ? "unsupported channel" : group.status}
               </span>
             </div>
 
@@ -639,6 +645,7 @@ export function UploadPage() {
                         <th>Targeting</th>
                         <th>Buy Type</th>
                         <th>Budget</th>
+                        <th>Avg Frequency</th>
                         <th>Start</th>
                         <th>End</th>
                       </tr>
@@ -649,6 +656,7 @@ export function UploadPage() {
                           <td>{item.targeting || "—"}</td>
                           <td>{item.buyType || "—"}</td>
                           <td>{item.budget || "—"}</td>
+                          <td>{item.avgFrequency || "—"}</td>
                           <td>{item.startDate || "—"}</td>
                           <td>{item.endDate || "—"}</td>
                         </tr>

@@ -85,7 +85,7 @@ function findHeaderRow(sheet: XLSX.WorkSheet): number {
  * Does NOT validate row data — that's handled by excel-validator.
  */
 export function parseExcel(buffer: ArrayBuffer): ExcelRow[] {
-  const workbook = XLSX.read(buffer, { type: "array" });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
 
   if (workbook.SheetNames.length === 0) {
     throw new Error("Excel file contains no sheets");
@@ -142,8 +142,18 @@ export function parseExcel(buffer: ArrayBuffer): ExcelRow[] {
 
     for (const [originalKey, field] of headerMap) {
       const val = raw[originalKey];
+      let strVal = "";
+      if (val instanceof Date) {
+        // Format dates as YYYY-MM-DD
+        const y = val.getFullYear();
+        const m = String(val.getMonth() + 1).padStart(2, "0");
+        const d = String(val.getDate()).padStart(2, "0");
+        strVal = `${y}-${m}-${d}`;
+      } else if (val != null) {
+        strVal = String(val).trim();
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (row as any)[field] = val != null ? String(val).trim() : "";
+      (row as any)[field] = strVal;
     }
 
     rows.push(row);
@@ -175,6 +185,7 @@ export function groupIntoCampaigns(rows: ExcelRow[]): CampaignGroup[] {
     const key = `${row.markets.toLowerCase()}||${row.channel.toLowerCase()}`;
 
     if (!groupMap.has(key)) {
+      const isMeta = row.channel.trim().toLowerCase().startsWith("meta");
       groupMap.set(key, {
         markets: row.markets,
         channel: row.channel,
@@ -183,11 +194,28 @@ export function groupIntoCampaigns(rows: ExcelRow[]): CampaignGroup[] {
         geoIntents: [],
         resolvedGeoTargets: [],
         unresolvedIntents: [],
-        status: "pending",
+        status: isMeta ? "pending" : "unsupported",
       });
     }
 
     groupMap.get(key)!.lineItems.push(row);
+  }
+
+  // Compute frequency control from first line item with valid data
+  for (const group of groupMap.values()) {
+    const first = group.lineItems[0];
+    if (first) {
+      const freq = parseFloat(first.avgFrequency);
+      const start = new Date(first.startDate);
+      const end = new Date(first.endDate);
+      if (!isNaN(freq) && freq > 0 && !isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        if (days > 0) {
+          group.frequencyCap = freq;
+          group.frequencyIntervalDays = days;
+        }
+      }
+    }
   }
 
   return Array.from(groupMap.values());
