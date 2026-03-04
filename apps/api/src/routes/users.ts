@@ -37,7 +37,7 @@ users.post(
 
     const inviteToken = crypto.randomUUID();
     const frontendUrl =
-      process.env.FRONTEND_URL ?? "http://guardrails.localhost:1355";
+      process.env.FRONTEND_URL ?? "http://localhost:5173";
 
     await db.insert(companyUsers).values({
       companyId: auth.companyId,
@@ -103,7 +103,7 @@ users.post(
     const resetToken = crypto.randomUUID();
     const resetTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const frontendUrl =
-      process.env.FRONTEND_URL ?? "http://guardrails.localhost:1355";
+      process.env.FRONTEND_URL ?? "http://localhost:5173";
 
     await db
       .update(companyUsers)

@@ -9,5 +9,5 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
-  trustedOrigins: ["http://guardrails.localhost:1355"],
+  trustedOrigins: [process.env.FRONTEND_URL ?? "http://localhost:5173"],
 });

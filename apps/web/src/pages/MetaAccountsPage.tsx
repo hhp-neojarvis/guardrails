@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router";
-
-const API_URL = "http://api.guardrails.localhost:1355";
+import { API_URL } from "../lib/api";
 
 interface MetaAdAccount {
   id: string;

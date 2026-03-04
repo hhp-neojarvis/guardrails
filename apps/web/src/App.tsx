@@ -8,6 +8,8 @@ import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { UserManagementPage } from "./pages/UserManagementPage";
 import { MetaAccountsPage } from "./pages/MetaAccountsPage";
+import { UploadPage } from "./pages/UploadPage";
+import { GuardrailsPage } from "./pages/GuardrailsPage";
 import { Layout } from "./components/Layout";
 
 export function AppRoutes() {
@@ -35,6 +37,20 @@ export function AppRoutes() {
           <ProtectedRoute>
             <Layout>
               <MetaAccountsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/upload" element={
+          <ProtectedRoute>
+            <Layout>
+              <UploadPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/guardrails" element={
+          <ProtectedRoute>
+            <Layout>
+              <GuardrailsPage />
             </Layout>
           </ProtectedRoute>
         } />

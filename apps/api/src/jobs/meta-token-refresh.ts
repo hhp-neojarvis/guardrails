@@ -1,7 +1,7 @@
 // Token refresh job for Meta access tokens
 // Refreshes tokens expiring within 7 days
 
-import { db, metaAdAccounts, eq, and, lt, sql } from '@guardrails/db';
+import { db, metaAdAccounts, eq, sql } from '@guardrails/db';
 import { encrypt, decrypt } from '../lib/crypto.js';
 
 export async function refreshExpiringTokens(): Promise<{ refreshed: number; failed: number }> {
@@ -10,10 +10,7 @@ export async function refreshExpiringTokens(): Promise<{ refreshed: number; fail
     .select()
     .from(metaAdAccounts)
     .where(
-      and(
-        eq(metaAdAccounts.tokenStatus, 'valid'),
-        lt(metaAdAccounts.tokenExpiresAt, sql`NOW() + INTERVAL '7 days'`)
-      )
+      sql`${metaAdAccounts.tokenStatus} = 'valid' AND ${metaAdAccounts.tokenExpiresAt} < NOW() + INTERVAL '7 days'`
     );
 
   let refreshed = 0;

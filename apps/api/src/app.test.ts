@@ -19,10 +19,10 @@ describe("API", () => {
   describe("CORS", () => {
     it("includes CORS headers for allowed origin", async () => {
       const res = await app.request("/health", {
-        headers: { Origin: "http://guardrails.localhost:1355" },
+        headers: { Origin: "http://localhost:5173" },
       });
       expect(res.headers.get("access-control-allow-origin")).toBe(
-        "http://guardrails.localhost:1355",
+        "http://localhost:5173",
       );
       expect(res.headers.get("access-control-allow-credentials")).toBe("true");
     });
@@ -31,13 +31,13 @@ describe("API", () => {
       const res = await app.request("/health", {
         method: "OPTIONS",
         headers: {
-          Origin: "http://guardrails.localhost:1355",
+          Origin: "http://localhost:5173",
           "Access-Control-Request-Method": "GET",
         },
       });
       expect(res.status).toBe(204);
       expect(res.headers.get("access-control-allow-origin")).toBe(
-        "http://guardrails.localhost:1355",
+        "http://localhost:5173",
       );
     });
   });

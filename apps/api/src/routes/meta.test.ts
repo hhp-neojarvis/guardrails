@@ -75,7 +75,7 @@ beforeEach(() => {
   process.env.META_APP_ID = "test-app-id";
   process.env.META_APP_SECRET = "test-app-secret";
   process.env.META_OAUTH_REDIRECT_URI = "http://localhost:3001/api/meta/callback";
-  process.env.FRONTEND_URL = "http://guardrails.localhost:1355";
+  process.env.FRONTEND_URL = "http://localhost:5173";
   process.env.TOKEN_ENCRYPTION_KEY = "a".repeat(64);
   resetDbChain();
 });

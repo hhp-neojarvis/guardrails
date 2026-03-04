@@ -47,6 +47,42 @@ export interface GeoResolutionResult {
   }>;
 }
 
+// ─── Line Item Config Types ──────────────────────────────────────────────────
+
+export interface TargetingConfig {
+  ageMin: number;   // 13–65
+  ageMax: number;
+  genders: number[];  // [1]=male, [2]=female, [1,2]=both
+  raw: string;
+}
+
+export interface BuyTypeConfig {
+  objective: string;   // "OUTCOME_AWARENESS", "REACH"
+  buyingType: string;  // "REACH_AND_FREQUENCY", "AUCTION", "RESERVED"
+  raw: string;
+}
+
+export interface AssetConfig {
+  format: string;  // "IMAGE", "VIDEO", "CAROUSEL"
+  videoDurationSeconds?: number;
+  raw: string;
+}
+
+export interface InventoryConfig {
+  publisherPlatforms: string[];    // ["facebook", "instagram"]
+  facebookPositions?: string[];
+  instagramPositions?: string[];
+  raw: string;
+}
+
+export interface LineItemConfig {
+  targeting?: TargetingConfig;
+  buyType?: BuyTypeConfig;
+  asset?: AssetConfig;
+  inventory?: InventoryConfig;
+  warnings: string[];
+}
+
 // ─── Campaign Group ──────────────────────────────────────────────────────────
 /** A campaign group = rows sharing the same Markets + Channel */
 export interface CampaignGroup {
@@ -62,11 +98,13 @@ export interface CampaignGroup {
   geoIntents: GeoIntent[];
   resolvedGeoTargets: ResolvedGeoTarget[];
   unresolvedIntents: Array<{ intent: GeoIntent; reason: string }>;
+  lineItemConfigs?: LineItemConfig[];
+  campaignBuyType?: BuyTypeConfig;
   status: 'pending' | 'processing' | 'resolved' | 'error' | 'unsupported';
 }
 
 // ─── Pipeline Stages & Thinking ──────────────────────────────────────────────
-export type PipelineStage = 'parsing' | 'validating' | 'interpreting' | 'resolving';
+export type PipelineStage = 'parsing' | 'validating' | 'interpreting' | 'resolving' | 'configuring';
 
 export interface ThinkingEntry {
   stage: PipelineStage;
@@ -99,6 +137,8 @@ export type PipelineEventType =
   | 'interpreted'
   | 'resolving'
   | 'resolved'
+  | 'configuring'
+  | 'configured'
   | 'complete'
   | 'error';
 

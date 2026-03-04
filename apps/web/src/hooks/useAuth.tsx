@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { authClient } from "../lib/auth-client";
+import { API_URL } from "../lib/api";
 
 interface AuthContext {
   user: { id: string; name: string; email: string } | null;
@@ -28,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (sessionData?.user) {
-      fetch("http://api.guardrails.localhost:1355/api/me", {
+      fetch(`${API_URL}/api/me`, {
         credentials: "include",
       })
         .then((res) => (res.ok ? res.json() : null))

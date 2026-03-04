@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
+import { API_URL } from "./api";
 
 export const authClient = createAuthClient({
-  baseURL: "http://api.guardrails.localhost:1355",
+  baseURL: API_URL,
 });

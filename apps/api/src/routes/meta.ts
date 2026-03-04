@@ -82,7 +82,7 @@ meta.get("/callback", async (c) => {
   const code = c.req.query("code");
   const state = c.req.query("state");
   const frontendUrl =
-    process.env.FRONTEND_URL ?? "http://guardrails.localhost:1355";
+    process.env.FRONTEND_URL ?? "http://localhost:5173";
 
   if (!code || !state) {
     return c.redirect(
@@ -225,7 +225,10 @@ meta.get("/pending-accounts", authMiddleware, async (c) => {
   }
 
   return c.json({
-    accounts: entry.accounts,
+    accounts: entry.accounts.map((a) => ({
+      accountId: a.account_id,
+      accountName: a.name,
+    })),
     metaUserId: entry.metaUserId,
     sessionId,
   });

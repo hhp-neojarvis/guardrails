@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-
-const API_URL = "http://api.guardrails.localhost:1355";
+import { API_URL } from "../lib/api";
 
 export function AcceptInvitePage() {
   const [searchParams] = useSearchParams();

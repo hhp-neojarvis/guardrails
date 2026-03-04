@@ -14,6 +14,7 @@ import { parseExcel, groupIntoCampaigns } from "../services/excel-parser.js";
 import { validateRows } from "../services/excel-validator.js";
 import { interpretGeoFromMarkets } from "../services/geo-interpreter.js";
 import { resolveGeoTargets } from "../services/geo-resolver.js";
+import { interpretLineItem, deriveCampaignBuyType } from "../services/column-interpreter.js";
 import type { PipelineEvent, CampaignGroup, ThinkingEntry } from "@guardrails/shared";
 
 const uploads = new Hono<AuthEnv>();
@@ -316,6 +317,54 @@ uploads.post("/upload", authMiddleware, async (c) => {
         data: { totalGroups: groups.length, groups },
       });
 
+      // ── Stage 5: Configuring ──
+      await sendEvent({
+        type: "configuring",
+        message: "Interpreting line item columns into Meta configs...",
+      });
+
+      for (const group of supportedGroups) {
+        const configs = group.lineItems.map((item, idx) => {
+          const config = interpretLineItem(item);
+
+          // Emit thinking for each line item
+          const parsed: string[] = [];
+          if (config.targeting) parsed.push(`Targeting: ${config.targeting.ageMin}-${config.targeting.ageMax} ${config.targeting.genders.length === 2 ? "M+F" : config.targeting.genders[0] === 1 ? "M" : "F"}`);
+          if (config.buyType) parsed.push(`Buy: ${config.buyType.buyingType}`);
+          if (config.asset) parsed.push(`Asset: ${config.asset.format}${config.asset.videoDurationSeconds ? ` (${config.asset.videoDurationSeconds}s)` : ""}`);
+          if (config.inventory) parsed.push(`Inventory: ${config.inventory.publisherPlatforms.join(", ")}`);
+
+          if (parsed.length > 0) {
+            sendThinking({
+              stage: "configuring",
+              subject: `${group.campaignName} #${idx + 1}`,
+              message: parsed.join(" | "),
+              status: "pass",
+            });
+          }
+
+          for (const warning of config.warnings) {
+            sendThinking({
+              stage: "configuring",
+              subject: `${group.campaignName} #${idx + 1}`,
+              message: warning,
+              status: "warn",
+            });
+          }
+
+          return config;
+        });
+
+        group.lineItemConfigs = configs;
+        group.campaignBuyType = deriveCampaignBuyType(configs);
+      }
+
+      await sendEvent({
+        type: "configured",
+        message: "Line item configuration complete",
+        data: { totalGroups: groups.length, groups },
+      });
+
       // ── Save campaign groups to DB ──
       for (const group of groups) {
         await db.insert(campaignGroups).values({
@@ -328,6 +377,8 @@ uploads.post("/upload", authMiddleware, async (c) => {
           geoIntents: group.geoIntents,
           resolvedGeoTargets: group.resolvedGeoTargets,
           unresolvedIntents: group.unresolvedIntents,
+          lineItemConfigs: group.lineItemConfigs,
+          campaignBuyType: group.campaignBuyType,
           status: group.status,
         });
       }
@@ -413,6 +464,8 @@ uploads.get("/uploads/:id", authMiddleware, async (c) => {
       geoIntents: g.geoIntents,
       resolvedGeoTargets: g.resolvedGeoTargets,
       unresolvedIntents: g.unresolvedIntents,
+      lineItemConfigs: g.lineItemConfigs,
+      campaignBuyType: g.campaignBuyType,
       status: g.status,
     })),
     errorMessage: upload.errorMessage,

@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../hooks/useAuth";
-
-const API_URL = "http://api.guardrails.localhost:1355";
+import { API_URL } from "../lib/api";
 
 export function DashboardPage() {
   const { role } = useAuth();
@@ -77,7 +76,11 @@ export function DashboardPage() {
       <div className="dash-section">
         <div className="dash-section-heading">Quick Actions</div>
         <div className="dash-actions">
-          <div className="dash-action-card dash-action-primary">
+          <div
+            className="dash-action-card dash-action-primary"
+            onClick={() => navigate("/upload")}
+            role="link"
+          >
             <div className="dash-action-icon">&#8593;</div>
             <div className="dash-action-text">
               <div className="dash-action-title">Upload Media Plan</div>

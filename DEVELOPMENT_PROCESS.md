@@ -16,14 +16,19 @@ This means the orchestrator's task description must be self-contained and explic
 
 ## Agents
 
-| Agent | Responsibility | Writes code? |
-|-------|---------------|:---:|
-| **Orchestrator** | Reads plan, creates branches, assigns tasks, sequences work, merges PRs, runs integration verification | No |
-| **Senior Engineer** | API contracts, shared types, project scaffold, Drizzle schema, cross-cutting architecture | Yes |
-| **Backend** | Implements API routes, middleware, auth config — builds against contracts | Yes |
-| **Frontend** | Implements React components, routing, UI — builds against contracts. **Must use the `frontend-design-system` skill** before building any UI to get design tokens, layout rules, and accessibility checks | Yes |
-| **Tester** | Writes + runs Vitest unit/integration tests and Playwright E2E tests | Yes |
-| **Reviewer** | Reviews PR against checklist, approves or requests changes | No |
+| Agent | Responsibility | Writes code? | Model |
+|-------|---------------|:---:|-------|
+| **Orchestrator** | Reads plan, creates branches, assigns tasks, sequences work, merges PRs, runs integration verification | No | Opus |
+| **Senior Engineer** | API contracts, shared types, project scaffold, Drizzle schema, cross-cutting architecture | Yes | Opus |
+| **Backend** | Implements API routes, middleware, auth config — builds against contracts | Yes | Sonnet |
+| **Frontend** | Implements React components, routing, UI — builds against contracts. **Must use the `frontend-design-system` skill** before building any UI to get design tokens, layout rules, and accessibility checks | Yes | Sonnet |
+| **Tester** | Writes + runs Vitest unit/integration tests and Playwright E2E tests | Yes | Sonnet |
+| **Reviewer** | Reviews PR against checklist, approves or requests changes | No | Opus |
+
+### Model Selection Rationale
+
+- **Opus** for Orchestrator, Senior Engineer, and Reviewer — these roles require stronger judgment: sequencing decisions, architectural choices, and catching subtle issues during review.
+- **Sonnet** for Backend, Frontend, and Tester — these roles implement against well-defined specs (task handoff format + contracts). Sonnet handles scoped implementation well and significantly reduces cost since these agents do the most token-heavy work.
 
 ## Task Handoff Format
 
@@ -54,18 +59,14 @@ This format ensures each agent can pick up the task cold and know exactly what t
 
 ## Dev Environment
 
-### Portless
-
-Local development uses [Portless](https://github.com/vercel-labs/portless) for stable `.localhost` URLs:
+### Dev Servers
 
 | App | URL |
 |-----|-----|
-| **Web (Vite)** | `guardrails.localhost:1355` |
-| **API (Hono)** | `api.guardrails.localhost:1355` |
+| **Web (Vite)** | `http://localhost:5173` |
+| **API (Hono)** | `http://localhost:3001` |
 
-No port numbers to remember. CORS, cookies, and OAuth redirect URIs all use these stable URLs.
-
-Dev start: `pnpm dev` runs both apps via Portless.
+Dev start: `pnpm dev` runs both apps concurrently.
 
 ### Frontend Design System
 
@@ -89,8 +90,10 @@ This ensures consistent, production-grade UI across all steps and agents.
 
 ```
 1. ORCHESTRATE
-   ├── Read step from slice plan (e.g., V0-plan.md Step 6)
-   ├── Create task branch from main (e.g., v0/step-6-invite-api)
+   ├── Read step from slice plan (e.g., V0.5-plan.md Step 4)
+   ├── Check dependency graph — all blocking steps must be merged to main
+   ├── Pull latest main
+   ├── Create task branch from main (e.g., v0.5/step-4-meta-oauth-routes)
    ├── Determine step type (senior-eng / backend / frontend / mixed)
    ├── Write task description (using handoff format above)
    └── Assign to first agent in the pipeline
@@ -100,19 +103,23 @@ This ensures consistent, production-grade UI across all steps and agents.
    ├── Define API contracts + shared types in packages/shared
    ├── Write Drizzle schema + migrations if step involves new tables
    ├── Set up project scaffold / cross-cutting config if needed
+   ├── Self-check: run `pnpm typecheck` and `pnpm lint` — fix any errors before proceeding
    ├── Commit to task branch
    └── Notify orchestrator → orchestrator writes next task description + assigns next agent
 
 3. BACKEND IMPLEMENT
    ├── Read task description + referenced context files + contracts on branch
    ├── Implement against shaping doc affordances + step spec + contracts
+   ├── Self-check: run `pnpm typecheck` and `pnpm lint` — fix any errors before proceeding
    ├── Commit to task branch
    └── Notify orchestrator
 
 4. FRONTEND IMPLEMENT
    ├── Read task description + referenced context files + contracts on branch
-   ├── Starts AFTER backend is done (sequential)
+   ├── Starts AFTER backend is done (sequential within mixed steps)
+   ├── Invoke `frontend-design-system` skill before building any UI
    ├── Implement against same contracts + working API
+   ├── Self-check: run `pnpm typecheck` and `pnpm lint` — fix any errors before proceeding
    ├── Commit to task branch
    └── Notify orchestrator
 
@@ -122,23 +129,43 @@ This ensures consistent, production-grade UI across all steps and agents.
    ├── Write Vitest unit tests (functions, hooks, utilities)
    ├── Write Vitest integration tests (API endpoints, component tests)
    ├── Write Playwright E2E tests (user flows for this step)
-   ├── Run all tests
-   ├── If failures → orchestrator writes fix task + assigns back to responsible agent
+   ├── Run all tests (`pnpm test` and `pnpm test:e2e`)
+   ├── If failures:
+   │     ├── Tester reports failures with details to orchestrator
+   │     ├── Orchestrator writes fix task + assigns back to responsible agent (BE/FE)
+   │     ├── Fixing agent commits fix on same branch
+   │     └── Tester re-runs — loop until all green
    ├── Commit tests when all passing
    └── Notify orchestrator
 
-6. REVIEW
+6. CREATE PR
+   ├── Orchestrator creates PR from task branch → main
+   ├── PR title: "V0.5 Step N — Short Description"
+   ├── PR body: summary of changes, link to plan step, test results
+   └── Assign to Reviewer agent
+
+7. REVIEW
    ├── Read task description + referenced context files
    ├── Read the full diff (git diff main)
    ├── Review against checklist (see below)
    ├── Approve → notify orchestrator
-   └── Request changes → orchestrator writes fix task + assigns back to responsible agent
+   └── Request changes:
+         ├── Reviewer posts specific change requests on the PR
+         ├── Orchestrator assigns fix task back to responsible agent
+         ├── Agent fixes, commits, pushes to same branch
+         ├── Tester re-verifies if changes are non-trivial
+         └── Reviewer re-reviews — loop until approved
 
-7. MERGE
-   ├── Orchestrator merges PR to main
-   ├── Run full test suite on main (Vitest + Playwright)
-   ├── If integration failures → create fix task on new branch
-   └── Pick next step
+8. MERGE + VERIFY
+   ├── Orchestrator merges PR to main (squash merge preferred for clean history)
+   ├── Pull latest main
+   ├── Run full test suite on main: `pnpm test` + `pnpm test:e2e`
+   ├── If integration failures:
+   │     ├── Create hotfix branch from main
+   │     ├── Fix, test, PR, review (expedited — same process, tighter loop)
+   │     └── Merge hotfix
+   ├── Confirm main is green
+   └── Pick next step (respecting dependency graph)
 ```
 
 ## Step Type Pipelines
@@ -176,15 +203,17 @@ ORCHESTRATE
 ## Branch Naming
 
 ```
-v0/step-{N}-{short-description}
+{slice}/step-{N}-{short-description}
 
 Examples:
   v0/step-1-scaffold
   v0/step-2-db-schema
   v0/step-6-invite-api
+  v0.5/step-4-meta-oauth-routes
+  v0.5/step-7-meta-accounts-ui
 ```
 
-One branch per step. One PR per step. Small, reviewable PRs.
+One branch per step. One PR per step. Small, reviewable PRs. Branch always created from latest `main`.
 
 ## Review Checklist
 

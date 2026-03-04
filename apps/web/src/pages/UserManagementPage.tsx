@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-
-const API_URL = "http://api.guardrails.localhost:1355";
+import { API_URL } from "../lib/api";
 
 interface User {
   id: string;

@@ -63,6 +63,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <span className="sidebar-nav-icon">&#9632;</span>
               Dashboard
             </Link>
+            <Link
+              to="/upload"
+              className={isActive("/upload") ? "nav-active" : ""}
+            >
+              <span className="sidebar-nav-icon">&#8593;</span>
+              Upload Media Plan
+            </Link>
+            <Link
+              to="/guardrails"
+              className={isActive("/guardrails") ? "nav-active" : ""}
+            >
+              <span className="sidebar-nav-icon">&#9888;</span>
+              Guardrails
+            </Link>
           </div>
 
           {role === "super_admin" && (

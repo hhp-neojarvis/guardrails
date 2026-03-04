@@ -7,6 +7,7 @@ import type {
   CampaignGroup,
   ThinkingEntry,
   ValidationResult,
+  LineItemConfig,
 } from "@guardrails/shared";
 
 type Stage = "idle" | "uploading" | "complete" | "error";
@@ -16,6 +17,7 @@ interface StageStatus {
   validating: "pending" | "active" | "done" | "error";
   interpreting: "pending" | "active" | "done" | "error";
   resolving: "pending" | "active" | "done" | "error";
+  configuring: "pending" | "active" | "done" | "error";
 }
 
 export function UploadPage() {
@@ -38,6 +40,7 @@ export function UploadPage() {
     validating: "pending",
     interpreting: "pending",
     resolving: "pending",
+    configuring: "pending",
   });
   const [progressMessage, setProgressMessage] = useState("");
   const [progress, setProgress] = useState(0);
@@ -121,6 +124,7 @@ export function UploadPage() {
       validating: "pending",
       interpreting: "pending",
       resolving: "pending",
+      configuring: "pending",
     });
     setProgressMessage("Starting upload...");
     setProgress(0);
@@ -241,6 +245,19 @@ export function UploadPage() {
                     setGroups(event.data.groups);
                   }
                   break;
+                case "configuring":
+                  setStages((s) => ({
+                    ...s,
+                    resolving: "done",
+                    configuring: "active",
+                  }));
+                  break;
+                case "configured":
+                  setStages((s) => ({ ...s, configuring: "done" }));
+                  if (event.data?.groups) {
+                    setGroups(event.data.groups);
+                  }
+                  break;
                 case "complete":
                   setStage("complete");
                   setStages({
@@ -248,6 +265,7 @@ export function UploadPage() {
                     validating: "done",
                     interpreting: "done",
                     resolving: "done",
+                    configuring: "done",
                   });
                   if (event.data?.groups) {
                     setGroups(event.data.groups);
@@ -294,6 +312,7 @@ export function UploadPage() {
       validating: "pending",
       interpreting: "pending",
       resolving: "pending",
+      configuring: "pending",
     });
   }, []);
 
@@ -433,6 +452,10 @@ export function UploadPage() {
           <StageIndicator
             label="Resolving via Meta API"
             status={stages.resolving}
+          />
+          <StageIndicator
+            label="Configuring Campaigns"
+            status={stages.configuring}
           />
         </div>
 
@@ -644,23 +667,62 @@ export function UploadPage() {
                       <tr>
                         <th>Targeting</th>
                         <th>Buy Type</th>
+                        <th>Asset</th>
+                        <th>Inventory</th>
                         <th>Budget</th>
-                        <th>Avg Frequency</th>
                         <th>Start</th>
                         <th>End</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {group.lineItems.map((item, k) => (
-                        <tr key={k}>
-                          <td>{item.targeting || "—"}</td>
-                          <td>{item.buyType || "—"}</td>
-                          <td>{item.budget || "—"}</td>
-                          <td>{item.avgFrequency || "—"}</td>
-                          <td>{item.startDate || "—"}</td>
-                          <td>{item.endDate || "—"}</td>
-                        </tr>
-                      ))}
+                      {group.lineItems.map((item, k) => {
+                        const config = group.lineItemConfigs?.[k];
+                        return (
+                          <tr key={k}>
+                            <td>
+                              {item.targeting || "—"}
+                              {config?.targeting && (
+                                <div className="upload-interpreted">
+                                  Age: {config.targeting.ageMin}-{config.targeting.ageMax}, Gender: {config.targeting.genders.length === 2 ? "M+F" : config.targeting.genders[0] === 1 ? "M" : "F"}
+                                </div>
+                              )}
+                              <ConfigWarnings config={config} field="targeting" />
+                            </td>
+                            <td>
+                              {item.buyType || "—"}
+                              {config?.buyType && (
+                                <div className="upload-interpreted">
+                                  {config.buyType.buyingType}
+                                </div>
+                              )}
+                              <ConfigWarnings config={config} field="buyType" />
+                            </td>
+                            <td>
+                              {item.asset || "—"}
+                              {config?.asset && (
+                                <div className="upload-interpreted">
+                                  {config.asset.format}{config.asset.videoDurationSeconds ? ` (${config.asset.videoDurationSeconds}s)` : ""}
+                                </div>
+                              )}
+                              <ConfigWarnings config={config} field="asset" />
+                            </td>
+                            <td>
+                              {item.inventory || "—"}
+                              {config?.inventory && (
+                                <div className="upload-interpreted">
+                                  {config.inventory.facebookPositions ? `fb: ${config.inventory.facebookPositions.join(", ")}` : ""}
+                                  {config.inventory.facebookPositions && config.inventory.instagramPositions ? " | " : ""}
+                                  {config.inventory.instagramPositions ? `ig: ${config.inventory.instagramPositions.join(", ")}` : ""}
+                                </div>
+                              )}
+                              <ConfigWarnings config={config} field="inventory" />
+                            </td>
+                            <td>{item.budget || "—"}</td>
+                            <td>{item.startDate || "—"}</td>
+                            <td>{item.endDate || "—"}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -677,6 +739,24 @@ export function UploadPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+// ── Config warnings component ──
+function ConfigWarnings({ config, field }: { config?: LineItemConfig; field: string }) {
+  if (!config?.warnings.length) return null;
+  const relevant = config.warnings.filter((w) =>
+    w.toLowerCase().includes(field.toLowerCase().replace("buytype", "buy type")),
+  );
+  if (relevant.length === 0) return null;
+  return (
+    <>
+      {relevant.map((w, i) => (
+        <div key={i} className="upload-interpreted upload-interpreted-warn">
+          {w}
+        </div>
+      ))}
+    </>
   );
 }
 

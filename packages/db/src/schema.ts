@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 export const companies = pgTable("companies", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -41,3 +41,80 @@ export const metaAdAccounts = pgTable(
   },
   (table) => [unique().on(table.companyId, table.metaAccountId)],
 );
+
+// ─── V1: Excel Uploads ───────────────────────────────────────────────────────
+
+export const excelUploads = pgTable("excel_uploads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id")
+    .notNull()
+    .references(() => companies.id),
+  uploadedByUserId: text("uploaded_by_user_id").notNull(),
+  metaAdAccountId: uuid("meta_ad_account_id")
+    .notNull()
+    .references(() => metaAdAccounts.id),
+  fileName: text("file_name").notNull(),
+  status: text("status").notNull().default("processing"),
+  totalRows: integer("total_rows"),
+  rawData: jsonb("raw_data"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ─── V1: Campaign Groups ────────────────────────────────────────────────────
+
+export const campaignGroups = pgTable("campaign_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  uploadId: uuid("upload_id")
+    .notNull()
+    .references(() => excelUploads.id),
+  companyId: uuid("company_id")
+    .notNull()
+    .references(() => companies.id),
+  markets: text("markets").notNull(),
+  channel: text("channel").notNull(),
+  campaignName: text("campaign_name").notNull(),
+  lineItems: jsonb("line_items"),
+  geoIntents: jsonb("geo_intents"),
+  resolvedGeoTargets: jsonb("resolved_geo_targets"),
+  unresolvedIntents: jsonb("unresolved_intents"),
+  lineItemConfigs: jsonb("line_item_configs"),
+  campaignBuyType: jsonb("campaign_buy_type"),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ─── V1: Geo Cache ──────────────────────────────────────────────────────────
+
+export const geoCache = pgTable(
+  "geo_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    query: text("query").notNull(),
+    locationType: text("location_type").notNull(),
+    countryCode: text("country_code").notNull(),
+    metaKey: text("meta_key").notNull(),
+    metaName: text("meta_name").notNull(),
+    metaType: text("meta_type").notNull(),
+    metaRegion: text("meta_region"),
+    metaRegionId: integer("meta_region_id"),
+    metaCountryCode: text("meta_country_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [unique().on(table.query, table.locationType, table.countryCode)],
+);
+
+// ─── V3: Guardrails ──────────────────────────────────────────────────────────
+
+export const guardrails = pgTable("guardrails", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id")
+    .notNull()
+    .references(() => companies.id),
+  description: text("description").notNull(),
+  check: jsonb("check").notNull(), // stores GuardrailCheck object
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
