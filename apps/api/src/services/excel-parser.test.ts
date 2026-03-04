@@ -50,20 +50,22 @@ describe("parseExcel", () => {
     expect(rows[1].markets).toBe("Mumbai");
   });
 
-  it("throws on empty Markets column", () => {
+  it("returns empty string for empty Markets column", () => {
     const buffer = makeExcelBuffer([
       { Markets: "", Channel: "Meta" },
     ]);
 
-    expect(() => parseExcel(buffer)).toThrow("Row 2: Markets column is empty");
+    const rows = parseExcel(buffer);
+    expect(rows[0].markets).toBe("");
   });
 
-  it("throws on empty Channel column", () => {
+  it("returns empty string for empty Channel column", () => {
     const buffer = makeExcelBuffer([
       { Markets: "Delhi", Channel: "" },
     ]);
 
-    expect(() => parseExcel(buffer)).toThrow("Row 2: Channel column is empty");
+    const rows = parseExcel(buffer);
+    expect(rows[0].channel).toBe("");
   });
 
   it("throws on empty sheet", () => {
@@ -84,6 +86,42 @@ describe("parseExcel", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].markets).toBe("Delhi");
     expect(rows[0].buyType).toBe("RNF");
+  });
+
+  it("ignores Audience Sizing column for budget", () => {
+    const buffer = makeExcelBuffer([
+      {
+        Markets: "Delhi",
+        Channel: "Meta",
+        "Audience Sizing": "1200000",
+        Buget: "240000",
+      },
+    ]);
+
+    const rows = parseExcel(buffer);
+    expect(rows[0].budget).toBe("240000");
+  });
+
+  it("does not use Audience Sizing as budget when no Budget column exists", () => {
+    const buffer = makeExcelBuffer([
+      {
+        Markets: "Delhi",
+        Channel: "Meta",
+        "Audience Sizing": "1200000",
+      },
+    ]);
+
+    const rows = parseExcel(buffer);
+    expect(rows[0].budget).toBe("");
+  });
+
+  it("handles Buget typo variant", () => {
+    const buffer = makeExcelBuffer([
+      { Markets: "Delhi", Channel: "Meta", Buget: "50000" },
+    ]);
+
+    const rows = parseExcel(buffer);
+    expect(rows[0].budget).toBe("50000");
   });
 });
 

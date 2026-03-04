@@ -20,8 +20,7 @@ const COLUMN_MAP: Record<string, keyof ExcelRow> = {
   avgfrequency: "avgFrequency",
   "average frequency": "avgFrequency",
   budget: "budget",
-  "audience sizing": "budget",
-  "audience size": "budget",
+  buget: "budget",
   "total impressions": "totalReach",
   "start date": "startDate",
   startdate: "startDate",
@@ -30,6 +29,11 @@ const COLUMN_MAP: Record<string, keyof ExcelRow> = {
   "campaign name": "campaignName",
   campaignname: "campaignName",
 };
+
+// Fallback aliases: only used when no other column maps to the same field.
+const FALLBACK_ALIASES = new Set([
+  "total impressions",
+]);
 
 /**
  * Fill merged cells in a sheet so every cell in a merge range
@@ -108,16 +112,32 @@ export function parseExcel(buffer: ArrayBuffer): ExcelRow[] {
     throw new Error("Excel sheet is empty — no data rows found");
   }
 
-  // Build header → field mapping from first row's keys
+  // Build header → field mapping from first row's keys.
+  // When multiple columns map to the same field (e.g. "Budget" and "Audience Sizing"
+  // both map to "budget"), prefer the primary name over fallback aliases.
   const firstRowKeys = Object.keys(rawRows[0]);
   const headerMap = new Map<string, keyof ExcelRow>();
+  const fieldToHeader = new Map<keyof ExcelRow, string>();
 
+  // First pass: map all matching headers, preferring primary columns over fallback aliases
   for (const key of firstRowKeys) {
     const normalized = key.trim().toLowerCase();
     const field = COLUMN_MAP[normalized];
-    if (field) {
+    if (!field) continue;
+
+    const isFallback = FALLBACK_ALIASES.has(normalized);
+    const existing = fieldToHeader.get(field);
+
+    if (!existing) {
       headerMap.set(key, field);
+      fieldToHeader.set(field, key);
+    } else if (!isFallback) {
+      // Current column is primary — override any existing (which may be a fallback)
+      headerMap.delete(existing);
+      headerMap.set(key, field);
+      fieldToHeader.set(field, key);
     }
+    // If current is fallback and existing already set, skip
   }
 
   const rows: ExcelRow[] = [];
