@@ -161,3 +161,81 @@ export const guardrails = pgTable("guardrails", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// ─── V7: Meta Campaign Snapshots ─────────────────────────────────────────────
+
+export const metaCampaignSnapshots = pgTable(
+  "meta_campaign_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    uploadId: uuid("upload_id")
+      .notNull()
+      .references(() => excelUploads.id),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id),
+    metaCampaignId: text("meta_campaign_id").notNull(),
+    data: jsonb("data").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [unique().on(table.uploadId, table.metaCampaignId)],
+);
+
+// ─── V7: Campaign Matches ────────────────────────────────────────────────────
+
+export const campaignMatches = pgTable(
+  "campaign_matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    uploadId: uuid("upload_id")
+      .notNull()
+      .references(() => excelUploads.id),
+    campaignGroupId: uuid("campaign_group_id")
+      .notNull()
+      .references(() => campaignGroups.id),
+    metaCampaignId: text("meta_campaign_id").notNull(),
+    confidence: real("confidence").notNull(),
+    confirmedByUserId: text("confirmed_by_user_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [unique().on(table.uploadId, table.campaignGroupId)],
+);
+
+// ─── V7: Validation Reports ─────────────────────────────────────────────────
+
+export const validationReports = pgTable("validation_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  uploadId: uuid("upload_id")
+    .notNull()
+    .unique()
+    .references(() => excelUploads.id),
+  companyId: uuid("company_id")
+    .notNull()
+    .references(() => companies.id),
+  results: jsonb("results").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ─── V7: Validation Flags ───────────────────────────────────────────────────
+
+export const validationFlags = pgTable("validation_flags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  uploadId: uuid("upload_id")
+    .notNull()
+    .references(() => excelUploads.id),
+  campaignGroupId: uuid("campaign_group_id")
+    .notNull()
+    .references(() => campaignGroups.id),
+  metaCampaignId: text("meta_campaign_id").notNull(),
+  field: text("field").notNull(),
+  severity: text("severity").notNull(),
+  note: text("note").notNull(),
+  flaggedByUserId: text("flagged_by_user_id").notNull(),
+  flaggedByEmail: text("flagged_by_email").notNull(),
+  flaggedAt: timestamp("flagged_at", { withTimezone: true }).defaultNow(),
+  resolved: boolean("resolved").notNull().default(false),
+  resolvedByUserId: text("resolved_by_user_id"),
+  resolvedByEmail: text("resolved_by_email"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  resolutionNote: text("resolution_note"),
+});

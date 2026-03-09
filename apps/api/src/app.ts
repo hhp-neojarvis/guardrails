@@ -8,6 +8,7 @@ import { users } from "./routes/users.js";
 import { meta } from "./routes/meta.js";
 import { uploads } from "./routes/uploads.js";
 import { guardrailRoutes } from "./routes/guardrails.js";
+import { validation } from "./routes/validation.js";
 
 export const app = new Hono<AuthEnv>();
 
@@ -34,6 +35,7 @@ app.route("/api/users", users);
 app.route("/api/meta", meta);
 app.route("/api", uploads);
 app.route("/api/guardrails", guardrailRoutes);
+app.route("/api", validation);
 
 app.get("/api/me", authMiddleware, (c) => {
   const authCtx = c.get("auth");

@@ -12,6 +12,8 @@ import { UploadPage } from "./pages/UploadPage";
 import { GuardrailsPage } from "./pages/GuardrailsPage";
 import { JobsPage } from "./pages/JobsPage";
 import { JobDetailPage } from "./pages/JobDetailPage";
+import { ValidationPage } from "./pages/ValidationPage";
+import { ValidationReportPage } from "./pages/ValidationReportPage";
 import { Layout } from "./components/Layout";
 
 export function AppRoutes() {
@@ -67,6 +69,20 @@ export function AppRoutes() {
           <ProtectedRoute>
             <Layout>
               <JobDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/jobs/:id/validate" element={
+          <ProtectedRoute>
+            <Layout>
+              <ValidationPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+        <Route path="/jobs/:id/report" element={
+          <ProtectedRoute>
+            <Layout>
+              <ValidationReportPage />
             </Layout>
           </ProtectedRoute>
         } />
