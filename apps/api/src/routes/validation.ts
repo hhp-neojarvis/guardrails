@@ -83,7 +83,7 @@ validation.post("/uploads/:id/fetch-campaigns", authMiddleware, async (c) => {
   }
 
   // Fetch campaigns from Meta API
-  let campaigns: MetaCampaignSnapshot[];
+  let campaigns: Omit<MetaCampaignSnapshot, "id" | "uploadId">[];
   try {
     campaigns = await fetchMetaCampaigns({
       adAccountId: adAccount.metaAccountId,
@@ -449,6 +449,11 @@ validation.get("/uploads/:id/validation-report", authMiddleware, async (c) => {
 validation.post("/uploads/:id/flags", authMiddleware, async (c) => {
   const auth = c.get("auth");
   const uploadId = c.req.param("id");
+
+  const upload = await loadUpload(uploadId, auth.companyId);
+  if (!upload) {
+    return c.json({ error: "Upload not found" }, 404);
+  }
 
   const body = (await c.req.json()) as CreateFlagRequest;
 

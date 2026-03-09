@@ -111,19 +111,17 @@ function mapAdSet(raw: Record<string, unknown>): MetaAdSetSnapshot {
   };
 }
 
-/** Map a raw Meta campaign to our MetaCampaignSnapshot type */
+/** Map a raw Meta campaign to our MetaCampaignSnapshot type (without id/uploadId, filled by caller) */
 function mapCampaign(
   raw: Record<string, unknown>,
   fetchedAt: string,
-): MetaCampaignSnapshot {
+): Omit<MetaCampaignSnapshot, "id" | "uploadId"> {
   const adSetsData = raw.adsets as { data?: unknown[] } | undefined;
   const adSets: MetaAdSetSnapshot[] = (adSetsData?.data ?? []).map((adSet) =>
     mapAdSet(adSet as Record<string, unknown>),
   );
 
   return {
-    id: "",
-    uploadId: "",
     metaCampaignId: String(raw.id ?? ""),
     name: String(raw.name ?? ""),
     status: raw.status as "ACTIVE" | "PAUSED",
@@ -174,10 +172,10 @@ async function handleErrorResponse(response: Response): Promise<never> {
 export async function fetchMetaCampaigns(params: {
   adAccountId: string;
   accessToken: string;
-}): Promise<MetaCampaignSnapshot[]> {
+}): Promise<Omit<MetaCampaignSnapshot, "id" | "uploadId">[]> {
   const adAccountId = normalizeAdAccountId(params.adAccountId);
   const fetchedAt = new Date().toISOString();
-  const allCampaigns: MetaCampaignSnapshot[] = [];
+  const allCampaigns: Omit<MetaCampaignSnapshot, "id" | "uploadId">[] = [];
 
   const filtering = JSON.stringify([
     {
@@ -191,14 +189,15 @@ export async function fetchMetaCampaigns(params: {
     fields: CAMPAIGN_FIELDS,
     filtering,
     limit: "100",
-    access_token: params.accessToken,
   });
+
+  const headers = { Authorization: `Bearer ${params.accessToken}` };
 
   let url: string | null =
     `${META_API_BASE}/${adAccountId}/campaigns?${queryParams.toString()}`;
 
   while (url) {
-    const response = await fetch(url);
+    const response = await fetch(url, { headers });
 
     if (!response.ok) {
       await handleErrorResponse(response);

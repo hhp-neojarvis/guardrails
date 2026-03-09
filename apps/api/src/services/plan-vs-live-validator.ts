@@ -100,13 +100,13 @@ function compareStartDate(
   const planDates = plan.lineItems
     .map((li) => li.startDate)
     .filter(Boolean)
-    .sort();
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   const planEarliest = planDates.length > 0 ? parseDateOnly(planDates[0]) : "";
 
   const metaDates = meta.adSets
     .map((as) => as.startTime)
     .filter(Boolean)
-    .sort();
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   const metaEarliest =
     metaDates.length > 0 ? parseDateOnly(metaDates[0]) : "";
 
@@ -139,14 +139,14 @@ function compareEndDate(
   const planDates = plan.lineItems
     .map((li) => li.endDate)
     .filter(Boolean)
-    .sort();
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   const planLatest =
     planDates.length > 0 ? parseDateOnly(planDates[planDates.length - 1]) : "";
 
   const metaDates = meta.adSets
     .map((as) => as.endTime)
     .filter(Boolean)
-    .sort();
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   const metaLatest =
     metaDates.length > 0 ? parseDateOnly(metaDates[metaDates.length - 1]) : "";
 
@@ -324,7 +324,7 @@ function compareFrequencyCap(
   const metaVal =
     firstAdSet?.frequencyControlSpecs?.[0]?.maxFrequency ?? NaN;
 
-  const pass = planVal === metaVal;
+  const pass = !isNaN(metaVal) && Math.abs(planVal - metaVal) < 0.01;
 
   return {
     field: "frequency_cap",

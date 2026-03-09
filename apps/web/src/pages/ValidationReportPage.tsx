@@ -466,7 +466,7 @@ export function ValidationReportPage() {
                     <span className="rpt-flag-field">{flag.field}</span>
                     <span className="rpt-flag-note-text">{flag.note}</span>
                     <span className="rpt-flag-meta">
-                      Resolved by {flag.resolvedByEmail} &middot; {relativeTime(flag.resolvedAt!)}
+                      Resolved by {flag.resolvedByEmail}{flag.resolvedAt ? <> &middot; {relativeTime(flag.resolvedAt)}</> : null}
                       {flag.resolutionNote && ` — ${flag.resolutionNote}`}
                     </span>
                   </div>

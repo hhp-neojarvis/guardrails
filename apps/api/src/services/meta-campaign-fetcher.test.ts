@@ -93,8 +93,8 @@ describe("fetchMetaCampaigns", () => {
     expect(result).toHaveLength(1);
 
     const campaign = result[0];
-    expect(campaign.id).toBe("");
-    expect(campaign.uploadId).toBe("");
+    expect(campaign).not.toHaveProperty("id");
+    expect(campaign).not.toHaveProperty("uploadId");
     expect(campaign.metaCampaignId).toBe("123456");
     expect(campaign.name).toBe("Test Campaign");
     expect(campaign.status).toBe("ACTIVE");
@@ -124,7 +124,10 @@ describe("fetchMetaCampaigns", () => {
     // Verify URL includes act_ prefix and correct params
     const calledUrl = mockFetch.mock.calls[0][0] as string;
     expect(calledUrl).toContain("act_12345/campaigns");
-    expect(calledUrl).toContain("access_token=test-token");
+    // access_token should NOT be in URL — it's in the Authorization header
+    expect(calledUrl).not.toContain("access_token");
+    const calledOptions = mockFetch.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(calledOptions.headers.Authorization).toBe("Bearer test-token");
   });
 
   it("prefixes adAccountId with act_ if missing", async () => {
