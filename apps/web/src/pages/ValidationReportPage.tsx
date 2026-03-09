@@ -339,10 +339,13 @@ export function ValidationReportPage() {
             (f) => f.campaignGroupId === result.campaignGroupId && f.metaCampaignId === result.metaCampaignId,
           );
 
+          // Derive status from actual field results (don't trust stored overallStatus)
+          const derivedStatus = failed.length > 0 ? "fail" : warned.length > 0 ? "warning" : "pass";
+
           return (
             <div
               key={result.campaignGroupId}
-              className={`rpt-card rpt-card-${result.overallStatus}`}
+              className={`rpt-card rpt-card-${derivedStatus}`}
             >
               {/* Card header */}
               <div
@@ -350,7 +353,7 @@ export function ValidationReportPage() {
                 onClick={() => toggleCollapsed(result.campaignGroupId)}
               >
                 <div className="rpt-card-status-indicator">
-                  <span className={`rpt-card-dot rpt-card-dot-${result.overallStatus}`} />
+                  <span className={`rpt-card-dot rpt-card-dot-${derivedStatus}`} />
                 </div>
                 <div className="rpt-card-names">
                   <span className="rpt-card-plan-name">{result.campaignGroupName}</span>
@@ -479,7 +482,9 @@ export function ValidationReportPage() {
                   {/* Match confidence */}
                   <div className="rpt-card-footer">
                     <span className="rpt-card-confidence">
-                      Match confidence: {Math.round(result.matchConfidence * 100)}%
+                      {result.matchConfidence > 0
+                        ? `Match confidence: ${Math.round(result.matchConfidence * 100)}%`
+                        : "Manually matched"}
                     </span>
                   </div>
                 </div>
