@@ -56,6 +56,16 @@ export interface MetaCampaignSnapshot {
   fetchedAt: string;
 }
 
+// ─── Campaign Strategy ──────────────────────────────────────────────────────
+
+/** How the user organized their Meta campaigns relative to the media plan */
+export type CampaignStrategy = "one_per_line_item" | "one_campaign";
+
+/** Request to set the strategy for an upload */
+export interface SetStrategyRequest {
+  strategy: CampaignStrategy;
+}
+
 // ─── Campaign Matching ──────────────────────────────────────────────────────
 
 /** Signals that contributed to a match score */
@@ -91,12 +101,43 @@ export interface CampaignMatch {
   confirmedAt: string;
 }
 
+/** A candidate match for a line item to an ad set (1:N strategy) */
+export interface AdSetMatchCandidate {
+  metaAdSetId: string;
+  metaAdSetName: string;
+  parentMetaCampaignId: string;
+  score: number;
+  signals: MatchSignals;
+}
+
+/** Auto-suggested matches for one line item within a campaign group (1:N strategy) */
+export interface LineItemMatchSuggestion {
+  lineItemIndex: number;
+  lineItemName: string;
+  candidates: AdSetMatchCandidate[];
+}
+
+/** Match suggestions for 1:N strategy: one campaign + per-line-item ad set matches */
+export interface OneToManyMatchSuggestion {
+  campaignGroupId: string;
+  campaignGroupName: string;
+  /** The single Meta campaign matched for this group */
+  metaCampaignCandidates: MatchCandidate[];
+  /** Per-line-item ad set match suggestions (populated after campaign is selected) */
+  lineItemSuggestions: LineItemMatchSuggestion[];
+}
+
 /** Request to confirm matches */
 export interface ConfirmMatchesRequest {
   matches: Array<{
     campaignGroupId: string;
     metaCampaignId: string;
     confidence: number;
+    /** For 1:N strategy: line item → ad set mappings */
+    lineItemMatches?: Array<{
+      lineItemIndex: number;
+      metaAdSetId: string;
+    }>;
   }>;
 }
 
@@ -119,6 +160,18 @@ export interface GuardrailCheckResult {
   message: string;
 }
 
+/** Validation result for a single line item vs ad set (1:N strategy) */
+export interface LineItemValidationResult {
+  lineItemIndex: number;
+  lineItemName: string;
+  metaAdSetId: string;
+  metaAdSetName: string;
+  fieldComparisons: FieldComparison[];
+  overallStatus: "pass" | "fail" | "warning";
+  failCount: number;
+  warnCount: number;
+}
+
 /** Validation result for one matched campaign pair */
 export interface CampaignValidationResult {
   campaignGroupId: string;
@@ -131,12 +184,15 @@ export interface CampaignValidationResult {
   overallStatus: "pass" | "fail" | "warning";
   failCount: number;
   warnCount: number;
+  /** Per-line-item results when using 1:N strategy */
+  lineItemResults?: LineItemValidationResult[];
 }
 
 /** Full validation report for an upload */
 export interface ValidationReport {
   id: string;
   uploadId: string;
+  strategy: CampaignStrategy;
   results: CampaignValidationResult[];
   unmatchedPlanCampaigns: Array<{ id: string; name: string }>;
   unmatchedMetaCampaigns: Array<{ id: string; name: string }>;
@@ -188,6 +244,12 @@ export interface FetchCampaignsResponse {
 
 export interface MatchSuggestionsResponse {
   suggestions: MatchSuggestion[];
+  /** Present when strategy is one_campaign */
+  oneToManySuggestions?: OneToManyMatchSuggestion[];
+}
+
+export interface LineItemMatchSuggestionsResponse {
+  lineItemSuggestions: LineItemMatchSuggestion[];
 }
 
 export interface ConfirmMatchesResponse {

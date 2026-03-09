@@ -16,14 +16,16 @@ import {
 } from "@guardrails/db";
 import { decrypt } from "../lib/crypto.js";
 import { fetchMetaCampaigns } from "../services/meta-campaign-fetcher.js";
-import { generateMatchSuggestions } from "../services/campaign-matcher.js";
-import { validateCampaignFields } from "../services/plan-vs-live-validator.js";
+import { generateMatchSuggestions, generateOneToManyMatchSuggestions, generateLineItemMatchSuggestions } from "../services/campaign-matcher.js";
+import { validateCampaignFields, validateCampaignFieldsOneToMany } from "../services/plan-vs-live-validator.js";
 import type {
   ConfirmMatchesRequest,
+  SetStrategyRequest,
   CreateFlagRequest,
   ResolveFlagRequest,
   MetaCampaignSnapshot,
   CampaignValidationResult,
+  CampaignStrategy,
   ValidationReport,
 } from "@guardrails/shared";
 import type { CampaignGroup } from "@guardrails/shared";
@@ -146,6 +148,34 @@ validation.get("/uploads/:id/meta-campaigns", authMiddleware, async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Strategy Route
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// PUT /uploads/:id/strategy — set the campaign strategy for an upload
+validation.put("/uploads/:id/strategy", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const uploadId = c.req.param("id");
+
+  const upload = await loadUpload(uploadId, auth.companyId);
+  if (!upload) {
+    return c.json({ error: "Upload not found" }, 404);
+  }
+
+  const body = (await c.req.json()) as SetStrategyRequest;
+
+  if (!body.strategy || !["one_per_line_item", "one_campaign"].includes(body.strategy)) {
+    return c.json({ error: "strategy must be 'one_per_line_item' or 'one_campaign'" }, 400);
+  }
+
+  await db
+    .update(excelUploads)
+    .set({ strategy: body.strategy, updatedAt: new Date() })
+    .where(eq(excelUploads.id, uploadId));
+
+  return c.json({ strategy: body.strategy });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Step 6: Match Routes
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -159,11 +189,16 @@ validation.get("/uploads/:id/match-suggestions", authMiddleware, async (c) => {
     return c.json({ error: "Upload not found" }, 404);
   }
 
-  // Load campaign groups for this upload
+  // Load campaign groups for this upload (with companyId filter for security)
   const groups = await db
     .select()
     .from(campaignGroups)
-    .where(eq(campaignGroups.uploadId, uploadId));
+    .where(
+      and(
+        eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
+      ),
+    );
 
   // Load meta campaign snapshots for this upload
   const snapshots = await db
@@ -178,12 +213,80 @@ validation.get("/uploads/:id/match-suggestions", authMiddleware, async (c) => {
 
   const metaCampaigns = snapshots.map((s) => s.data as MetaCampaignSnapshot);
 
+  const strategy = (upload.strategy as CampaignStrategy | null) ?? "one_per_line_item";
+
   const suggestions = generateMatchSuggestions(
     groups as unknown as CampaignGroup[],
     metaCampaigns,
   );
 
+  if (strategy === "one_campaign") {
+    const oneToManySuggestions = generateOneToManyMatchSuggestions(
+      groups as unknown as CampaignGroup[],
+      metaCampaigns,
+    );
+    return c.json({ suggestions, oneToManySuggestions });
+  }
+
   return c.json({ suggestions });
+});
+
+// GET /uploads/:id/match-suggestions/line-items — fetch line-item match suggestions on-demand
+validation.get("/uploads/:id/match-suggestions/line-items", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const uploadId = c.req.param("id");
+
+  const upload = await loadUpload(uploadId, auth.companyId);
+  if (!upload) {
+    return c.json({ error: "Upload not found" }, 404);
+  }
+
+  const campaignGroupId = c.req.query("campaignGroupId");
+  const metaCampaignId = c.req.query("metaCampaignId");
+
+  if (!campaignGroupId || !metaCampaignId) {
+    return c.json({ error: "campaignGroupId and metaCampaignId query params are required" }, 400);
+  }
+
+  // Load the campaign group (with companyId filter for security)
+  const [group] = await db
+    .select()
+    .from(campaignGroups)
+    .where(
+      and(
+        eq(campaignGroups.id, campaignGroupId),
+        eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
+      ),
+    );
+
+  if (!group) {
+    return c.json({ error: "Campaign group not found" }, 404);
+  }
+
+  // Load the meta campaign snapshot
+  const [snapshot] = await db
+    .select()
+    .from(metaCampaignSnapshots)
+    .where(
+      and(
+        eq(metaCampaignSnapshots.metaCampaignId, metaCampaignId),
+        eq(metaCampaignSnapshots.uploadId, uploadId),
+        eq(metaCampaignSnapshots.companyId, auth.companyId),
+      ),
+    );
+
+  if (!snapshot) {
+    return c.json({ error: "Meta campaign snapshot not found" }, 404);
+  }
+
+  const metaCampaign = snapshot.data as MetaCampaignSnapshot;
+  const lineItemSuggestions = generateLineItemMatchSuggestions(
+    group as unknown as CampaignGroup,
+    metaCampaign,
+  );
+
+  return c.json({ lineItemSuggestions });
 });
 
 // POST /uploads/:id/matches — confirm matches
@@ -202,7 +305,7 @@ validation.post("/uploads/:id/matches", authMiddleware, async (c) => {
     return c.json({ error: "matches array is required and must not be empty" }, 400);
   }
 
-  // Validate all campaignGroupIds belong to this upload
+  // Validate all campaignGroupIds belong to this upload (with companyId filter for security)
   const groupIds = body.matches.map((m) => m.campaignGroupId);
   const groups = await db
     .select()
@@ -210,6 +313,7 @@ validation.post("/uploads/:id/matches", authMiddleware, async (c) => {
     .where(
       and(
         eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
         inArray(campaignGroups.id, groupIds),
       ),
     );
@@ -252,6 +356,7 @@ validation.post("/uploads/:id/matches", authMiddleware, async (c) => {
         metaCampaignId: match.metaCampaignId,
         confidence: match.confidence,
         confirmedByUserId: auth.userId,
+        lineItemMatches: match.lineItemMatches ?? null,
       })
       .returning();
     inserted.push({
@@ -320,11 +425,16 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
     return c.json({ error: "No confirmed matches found. Confirm matches first." }, 400);
   }
 
-  // Load all campaign groups and snapshots for this upload
+  // Load all campaign groups and snapshots for this upload (with companyId filter for security)
   const groups = await db
     .select()
     .from(campaignGroups)
-    .where(eq(campaignGroups.uploadId, uploadId));
+    .where(
+      and(
+        eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
+      ),
+    );
 
   const snapshots = await db
     .select()
@@ -342,6 +452,9 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
     snapshots.map((s) => [s.metaCampaignId, s.data as MetaCampaignSnapshot]),
   );
 
+  // Determine strategy
+  const strategy: CampaignStrategy = (upload.strategy as CampaignStrategy | null) ?? "one_per_line_item";
+
   // Validate each match
   const results: CampaignValidationResult[] = [];
   const matchedGroupIds = new Set<string>();
@@ -358,11 +471,23 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
     matchedGroupIds.add(match.campaignGroupId);
     matchedMetaIds.add(match.metaCampaignId);
 
-    const result = validateCampaignFields(
-      group as unknown as CampaignGroup,
-      metaCampaign,
-      match.confidence,
-    );
+    let result: CampaignValidationResult;
+
+    if (strategy === "one_campaign") {
+      const lineItemMatches = (match.lineItemMatches as Array<{ lineItemIndex: number; metaAdSetId: string }>) ?? [];
+      result = validateCampaignFieldsOneToMany(
+        group as unknown as CampaignGroup,
+        metaCampaign,
+        match.confidence,
+        lineItemMatches,
+      );
+    } else {
+      result = validateCampaignFields(
+        group as unknown as CampaignGroup,
+        metaCampaign,
+        match.confidence,
+      );
+    }
 
     results.push(result);
   }
@@ -388,6 +513,7 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
   const report: ValidationReport = {
     id: "",
     uploadId,
+    strategy,
     results,
     unmatchedPlanCampaigns,
     unmatchedMetaCampaigns,

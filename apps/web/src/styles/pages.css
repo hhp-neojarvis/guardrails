@@ -2168,6 +2168,18 @@
   flex: 1;
 }
 
+.val-strategy-cards { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); max-width: 700px; }
+.val-strategy-card { border: 2px solid var(--color-border); border-radius: var(--radius-2); padding: var(--space-5); cursor: pointer; transition: border-color 0.15s; text-align: left; background: var(--color-bg-primary); }
+.val-strategy-card:hover { border-color: var(--color-primary); }
+.val-strategy-card.val-strategy-selected { border-color: var(--color-primary); background: var(--color-primary-subtle, rgba(59, 130, 246, 0.05)); }
+.val-strategy-card h3 { margin: 0 0 var(--space-2); }
+.val-strategy-card p { color: var(--color-text-secondary); margin: 0 0 var(--space-3); }
+.val-line-item-matches { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.val-line-item-row { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) 0; }
+.val-line-item-name { flex: 1; font-size: var(--text-sm); }
+.val-line-item-arrow { color: var(--color-text-secondary); }
+.val-line-item-adset { flex: 1; }
+
 /* ===== Validation Report Page ===== */
 
 .rpt-page {

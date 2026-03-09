@@ -59,6 +59,7 @@ export const excelUploads = pgTable("excel_uploads", {
   rawData: jsonb("raw_data"),
   errorMessage: text("error_message"),
   guardrailResults: jsonb("guardrail_results"),
+  strategy: text("strategy"), // "one_per_line_item" | "one_campaign" | null (not yet chosen)
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -196,6 +197,7 @@ export const campaignMatches = pgTable(
     metaCampaignId: text("meta_campaign_id").notNull(),
     confidence: real("confidence").notNull(),
     confirmedByUserId: text("confirmed_by_user_id").notNull(),
+    lineItemMatches: jsonb("line_item_matches"), // Array<{ lineItemIndex: number; metaAdSetId: string }>
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [unique().on(table.uploadId, table.campaignGroupId)],

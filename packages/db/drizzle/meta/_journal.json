@@ -92,6 +92,13 @@
       "when": 1773048575292,
       "tag": "0012_brown_tattoo",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1773051818082,
+      "tag": "0013_condemned_hitman",
+      "breakpoints": true
     }
   ]
 }
