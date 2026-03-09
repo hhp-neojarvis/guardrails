@@ -223,6 +223,18 @@ export function JobDetailPage() {
         </div>
       </div>
 
+      {/* Validate button */}
+      {(job.status === "completed" || job.status === "awaiting_review") && (
+        <div style={{ marginBottom: "var(--space-4)" }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => navigate(`/jobs/${id}/validate`)}
+          >
+            Validate Campaigns
+          </button>
+        </div>
+      )}
+
       {/* Error banner */}
       {error && (
         <div className="upload-error" style={{ marginBottom: "var(--space-4)" }}>
