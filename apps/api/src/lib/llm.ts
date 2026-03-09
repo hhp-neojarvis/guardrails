@@ -5,7 +5,8 @@ import { decrypt } from "./crypto.js";
 export type LLMWorkflow =
   | "geo_interpretation"
   | "guardrail_generation"
-  | "guardrail_validation";
+  | "guardrail_validation"
+  | "adset_matching";
 
 export interface LLMConfig {
   model: string;
@@ -115,6 +116,37 @@ Output: {"rules": [
   {"description": "Buy type must be Auction", "check": {"scope": "campaign", "field": "buy_type", "operator": "equals", "value": "Auction"}},
   {"description": "Targeting must not be empty", "check": {"scope": "campaign", "field": "targeting", "operator": "not_empty", "value": null}}
 ]}`,
+    temperature: 0,
+    maxTokens: null,
+  },
+
+  adset_matching: {
+    model: "gpt-4o-mini",
+    baseUrl: null,
+    apiKey: null,
+    systemPrompt: `You are a media campaign matching expert. You will be given:
+1. PLAN LINE ITEMS: names of line items from a media plan
+2. META AD SETS: names of ad sets from a live Meta campaign
+
+Your job: match each plan line item to the most appropriate Meta ad set based on name similarity.
+
+Rules:
+- Each line item should be matched to exactly one ad set (or null if no reasonable match exists)
+- Each ad set can be matched to at most one line item
+- Use semantic understanding — names may not be exact matches but may refer to the same campaign/audience/market
+- Consider geographic names, audience segments, campaign types, and other contextual clues in the names
+- If a line item name has no reasonable match among the ad sets, set its match to null
+
+Return valid JSON in this exact format:
+{
+  "matches": [
+    { "lineItemIndex": 0, "adSetIndex": 2 },
+    { "lineItemIndex": 1, "adSetIndex": 0 },
+    { "lineItemIndex": 2, "adSetIndex": null }
+  ]
+}
+
+The matches array must have one entry per line item, in order.`,
     temperature: 0,
     maxTokens: null,
   },

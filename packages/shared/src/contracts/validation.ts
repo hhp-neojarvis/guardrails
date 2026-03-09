@@ -40,6 +40,8 @@ export interface MetaAdSetSnapshot {
     intervalDays: number;
     maxFrequency: number;
   }>;
+  /** Average frequency from ad set insights (estimated) */
+  insightsFrequency?: number;
   ads: MetaAdSnapshot[];
 }
 

@@ -45,6 +45,8 @@ export function ValidationPage() {
   const [selections, setSelections] = useState<Map<string, string>>(new Map());
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const [changingGroup, setChangingGroup] = useState<string | null>(null);
+  // For 1:N strategy: the single Meta campaign selected for all groups
+  const [selectedOneCampaignId, setSelectedOneCampaignId] = useState<string | null>(null);
   // For 1:N strategy: line item → ad set selections per campaign group
   const [lineItemSelections, setLineItemSelections] = useState<Map<string, Map<number, string>>>(new Map());
 
@@ -105,19 +107,30 @@ export function ValidationPage() {
         if (selected === "one_campaign" && sugData.oneToManySuggestions) {
           setOneToManySuggestions(sugData.oneToManySuggestions);
 
-          // Pre-select top campaign candidates with score >= 0.6
-          // Line-item suggestions are fetched on-demand when the user accepts a campaign
-          const initial = new Map<string, string>();
+          // Pre-select the top campaign candidate across all groups (pick the best one)
+          let bestCandidate: MatchCandidate | null = null;
           for (const s of sugData.oneToManySuggestions) {
-            if (s.metaCampaignCandidates.length > 0 && s.metaCampaignCandidates[0].score >= 0.6) {
-              initial.set(s.campaignGroupId, s.metaCampaignCandidates[0].metaCampaignId);
+            if (s.metaCampaignCandidates.length > 0) {
+              const top = s.metaCampaignCandidates[0];
+              if (top.score >= 0.6 && (!bestCandidate || top.score > bestCandidate.score)) {
+                bestCandidate = top;
+              }
             }
           }
-          setSelections(initial);
 
-          // Fetch line-item suggestions for each pre-selected campaign
-          for (const [groupId, metaCampaignId] of initial.entries()) {
-            fetchLineItemSuggestions(groupId, metaCampaignId);
+          if (bestCandidate) {
+            const metaId = bestCandidate.metaCampaignId;
+            setSelectedOneCampaignId(metaId);
+            // Set the same campaign for all groups
+            const initial = new Map<string, string>();
+            for (const s of sugData.oneToManySuggestions) {
+              initial.set(s.campaignGroupId, metaId);
+            }
+            setSelections(initial);
+            // Fetch line-item suggestions for all groups
+            for (const s of sugData.oneToManySuggestions) {
+              fetchLineItemSuggestions(s.campaignGroupId, metaId);
+            }
           }
         } else {
           // 1:1 strategy - pre-select top candidates
@@ -286,6 +299,26 @@ export function ValidationPage() {
     }
   };
 
+  // For 1:N strategy: select the single Meta campaign for all groups
+  const handleSelectSingleCampaign = (metaCampaignId: string) => {
+    setSelectedOneCampaignId(metaCampaignId);
+    // Set the same campaign for all groups
+    const newSelections = new Map<string, string>();
+    for (const s of oneToManySuggestions) {
+      if (!skipped.has(s.campaignGroupId)) {
+        newSelections.set(s.campaignGroupId, metaCampaignId);
+      }
+    }
+    setSelections(newSelections);
+    // Clear old line-item selections and fetch new ones
+    setLineItemSelections(new Map());
+    for (const s of oneToManySuggestions) {
+      if (!skipped.has(s.campaignGroupId)) {
+        fetchLineItemSuggestions(s.campaignGroupId, metaCampaignId);
+      }
+    }
+  };
+
   const handleSelectMeta = (groupId: string, metaCampaignId: string) => {
     setSelections((prev) => new Map(prev).set(groupId, metaCampaignId));
     setSkipped((prev) => {
@@ -339,12 +372,6 @@ export function ValidationPage() {
   const activeSelectionCount = Array.from(selections.keys()).filter(
     (k) => !skipped.has(k),
   ).length;
-
-  // Unmatched meta campaigns (not selected by any group)
-  const selectedMetaIds = new Set(selections.values());
-  const unmatchedMeta = campaigns.filter(
-    (c) => !selectedMetaIds.has(c.metaCampaignId),
-  );
 
   // Get ad sets for a specific meta campaign
   const getAdSetsForCampaign = (metaCampaignId: string) => {
@@ -612,25 +639,6 @@ export function ValidationPage() {
             })}
           </div>
 
-          {/* Unmatched Meta campaigns */}
-          {unmatchedMeta.length > 0 && (
-            <div className="val-unmatched-section">
-              <h3 className="val-unmatched-header">
-                Unmatched Meta Campaigns ({unmatchedMeta.length})
-              </h3>
-              <div className="val-unmatched-list">
-                {unmatchedMeta.map((c) => (
-                  <div key={c.metaCampaignId} className="val-unmatched-item">
-                    <span className="val-unmatched-name">{c.name}</span>
-                    <span className={`badge ${c.status === "ACTIVE" ? "badge-success" : ""}`}>
-                      {c.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           <div className="val-phase-actions">
             <button
               className="btn btn-primary"
@@ -650,237 +658,235 @@ export function ValidationPage() {
         </div>
       )}
 
-      {/* Phase 3: Match (1:N strategy) */}
-      {phase === 3 && strategy === "one_campaign" && (
-        <div className="val-phase">
-          <div className="val-found-badge">
-            <span className="badge badge-success">Found {campaignCount} campaigns</span>
-          </div>
+      {/* Phase 3: Match (1:N strategy — single campaign, multiple ad sets) */}
+      {phase === 3 && strategy === "one_campaign" && (() => {
+        const selectedCampaign = selectedOneCampaignId
+          ? campaigns.find((c) => c.metaCampaignId === selectedOneCampaignId)
+          : null;
+        const adSets = selectedCampaign?.adSets ?? [];
+        // Find best auto-suggested campaign across all groups
+        let bestAutoCandidate: MatchCandidate | null = null;
+        for (const s of oneToManySuggestions) {
+          const top = getTopCandidate(s.metaCampaignCandidates);
+          if (top && top.score >= 0.6 && (!bestAutoCandidate || top.score > bestAutoCandidate.score)) {
+            bestAutoCandidate = top;
+          }
+        }
+        const isChangingCampaign = changingGroup === "__one_campaign__";
 
-          <div className="val-section-header">
-            <h2>Match Campaigns &amp; Ad Sets</h2>
-            <p className="val-section-subtitle">
-              Match your plan campaigns to a Meta campaign, then map each line item to an ad set
-            </p>
-          </div>
+        return (
+          <div className="val-phase">
+            <div className="val-found-badge">
+              <span className="badge badge-success">Found {campaignCount} campaigns</span>
+            </div>
 
-          <div className="val-match-list">
-            {oneToManySuggestions.map((suggestion) => {
-              const topCandidate = getTopCandidate(suggestion.metaCampaignCandidates);
-              const isSkipped = skipped.has(suggestion.campaignGroupId);
-              const selectedId = selections.get(suggestion.campaignGroupId);
-              const isChanging = changingGroup === suggestion.campaignGroupId;
-              const hasAutoSuggestion = topCandidate && topCandidate.score >= 0.6;
-              const adSets = selectedId ? getAdSetsForCampaign(selectedId) : [];
+            <div className="val-section-header">
+              <h2>Match Campaign &amp; Ad Sets</h2>
+              <p className="val-section-subtitle">
+                Select the Meta campaign, then map each line item to an ad set within it
+              </p>
+            </div>
 
-              return (
-                <div
-                  key={suggestion.campaignGroupId}
-                  className={`val-match-card ${isSkipped ? "val-match-card-skipped" : ""}`}
-                >
-                  <div className="val-match-card-header">
-                    <div className="val-match-plan-name">
-                      {suggestion.campaignGroupName}
+            {/* Single campaign selector */}
+            <div className="val-match-card" style={{ marginBottom: "var(--space-6)" }}>
+              <div className="val-match-card-header">
+                <div className="val-match-plan-name">Meta Campaign</div>
+              </div>
+              <div className="val-match-card-body">
+                {bestAutoCandidate && selectedOneCampaignId === bestAutoCandidate.metaCampaignId && !isChangingCampaign ? (
+                  <div className="val-suggestion">
+                    <div className="val-suggestion-info">
+                      <span className="val-meta-name">
+                        {bestAutoCandidate.metaCampaignName}
+                      </span>
+                      <span className={`badge ${getConfidenceClass(bestAutoCandidate.score)}`}>
+                        {Math.round(bestAutoCandidate.score * 100)}% match
+                      </span>
                     </div>
-                    <button
-                      className="btn btn-sm val-skip-btn"
-                      onClick={() =>
-                        isSkipped
-                          ? setSkipped((prev) => {
-                              const next = new Set(prev);
-                              next.delete(suggestion.campaignGroupId);
-                              return next;
-                            })
-                          : handleSkip(suggestion.campaignGroupId)
-                      }
-                    >
-                      {isSkipped ? "Unskip" : "Skip"}
-                    </button>
+                    <div className="val-suggestion-actions">
+                      <button className="btn btn-sm btn-primary">
+                        Accepted
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => setChangingGroup("__one_campaign__")}
+                      >
+                        Change
+                      </button>
+                    </div>
                   </div>
+                ) : (
+                  <div className="val-manual-select">
+                    {!selectedOneCampaignId && !isChangingCampaign && (
+                      <p className="val-no-match">Select the Meta campaign for all line items</p>
+                    )}
+                    <select
+                      className="input val-select"
+                      value={selectedOneCampaignId ?? ""}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleSelectSingleCampaign(e.target.value);
+                          setChangingGroup(null);
+                        }
+                      }}
+                    >
+                      <option value="">Select a Meta campaign...</option>
+                      {campaigns.map((c) => (
+                        <option key={c.metaCampaignId} value={c.metaCampaignId}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    {isChangingCampaign && (
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => setChangingGroup(null)}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
 
-                  {!isSkipped && (
-                    <div className="val-match-card-body">
-                      {hasAutoSuggestion && !isChanging ? (
-                        <div className="val-suggestion">
-                          <div className="val-suggestion-info">
-                            <span className="val-meta-name">
-                              {topCandidate.metaCampaignName}
-                            </span>
-                            <span
-                              className={`badge ${getConfidenceClass(topCandidate.score)}`}
-                            >
-                              {Math.round(topCandidate.score * 100)}% match
-                            </span>
-                          </div>
-                          <div className="val-suggestion-actions">
-                            <button
-                              className={`btn btn-sm ${selectedId === topCandidate.metaCampaignId ? "btn-primary" : ""}`}
-                              onClick={() =>
-                                handleSelectMeta(
-                                  suggestion.campaignGroupId,
-                                  topCandidate.metaCampaignId,
-                                )
-                              }
-                            >
-                              {selectedId === topCandidate.metaCampaignId
-                                ? "Accepted"
-                                : "Accept"}
-                            </button>
-                            <button
-                              className="btn btn-sm"
-                              onClick={() =>
-                                setChangingGroup(suggestion.campaignGroupId)
-                              }
-                            >
-                              Change
-                            </button>
-                          </div>
+            {/* Line item → ad set mapping (shown after campaign is selected) */}
+            {selectedOneCampaignId && (
+              <div className="val-match-list">
+                {oneToManySuggestions.map((suggestion) => {
+                  const isSkipped = skipped.has(suggestion.campaignGroupId);
+
+                  return (
+                    <div
+                      key={suggestion.campaignGroupId}
+                      className={`val-match-card ${isSkipped ? "val-match-card-skipped" : ""}`}
+                    >
+                      <div className="val-match-card-header">
+                        <div className="val-match-plan-name">
+                          {suggestion.campaignGroupName}
                         </div>
-                      ) : (
-                        <div className="val-manual-select">
-                          {!hasAutoSuggestion && !isChanging && (
-                            <p className="val-no-match">No match found</p>
-                          )}
-                          <select
-                            className="input val-select"
-                            value={selectedId ?? ""}
-                            onChange={(e) => {
-                              if (e.target.value) {
-                                handleSelectMeta(
-                                  suggestion.campaignGroupId,
-                                  e.target.value,
-                                );
-                              }
-                            }}
-                          >
-                            <option value="">Select a Meta campaign...</option>
-                            {campaigns.map((c) => (
-                              <option key={c.metaCampaignId} value={c.metaCampaignId}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </select>
-                          {isChanging && (
-                            <button
-                              className="btn btn-sm"
-                              onClick={() => setChangingGroup(null)}
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                      )}
+                        <button
+                          className="btn btn-sm val-skip-btn"
+                          onClick={() =>
+                            isSkipped
+                              ? (() => {
+                                  setSkipped((prev) => {
+                                    const next = new Set(prev);
+                                    next.delete(suggestion.campaignGroupId);
+                                    return next;
+                                  });
+                                  // Re-add this group to selections with the current campaign
+                                  if (selectedOneCampaignId) {
+                                    setSelections((prev) => new Map(prev).set(suggestion.campaignGroupId, selectedOneCampaignId));
+                                    fetchLineItemSuggestions(suggestion.campaignGroupId, selectedOneCampaignId);
+                                  }
+                                })()
+                              : handleSkip(suggestion.campaignGroupId)
+                          }
+                        >
+                          {isSkipped ? "Unskip" : "Skip"}
+                        </button>
+                      </div>
 
-                      {/* Line item → ad set matches (shown after campaign is accepted) */}
-                      {selectedId && suggestion.lineItemSuggestions.length > 0 && (
-                        <div className="val-line-item-matches">
-                          <h4 style={{ fontSize: "var(--text-sm)", fontWeight: "var(--font-semibold)", marginBottom: "var(--space-2)" }}>
-                            Line Item &rarr; Ad Set Mapping
-                          </h4>
-                          {suggestion.lineItemSuggestions.map((li) => {
-                            const topAdSet = getTopAdSetCandidate(li.candidates);
-                            const selectedAdSetId = lineItemSelections.get(suggestion.campaignGroupId)?.get(li.lineItemIndex);
-                            const hasAutoAdSet = topAdSet && topAdSet.score >= 0.6;
+                      {!isSkipped && suggestion.lineItemSuggestions.length > 0 && (
+                        <div className="val-match-card-body">
+                          <div className="val-line-item-matches">
+                            <h4 style={{ fontSize: "var(--text-sm)", fontWeight: "var(--font-semibold)", marginBottom: "var(--space-2)" }}>
+                              Line Item &rarr; Ad Set Mapping
+                            </h4>
+                            {suggestion.lineItemSuggestions.map((li) => {
+                              const topAdSet = getTopAdSetCandidate(li.candidates);
+                              const selectedAdSetId = lineItemSelections.get(suggestion.campaignGroupId)?.get(li.lineItemIndex);
+                              const hasAutoAdSet = topAdSet && topAdSet.score >= 0.6;
 
-                            return (
-                              <div key={li.lineItemIndex} className="val-line-item-row">
-                                <span className="val-line-item-name">{li.lineItemName}</span>
-                                <span className="val-line-item-arrow">&rarr;</span>
-                                <div className="val-line-item-adset">
-                                  {hasAutoAdSet && selectedAdSetId === topAdSet.metaAdSetId ? (
-                                    <span style={{ fontSize: "var(--text-sm)" }}>
-                                      {topAdSet.metaAdSetName}{" "}
-                                      <span className={`badge ${getConfidenceClass(topAdSet.score)}`}>
-                                        {Math.round(topAdSet.score * 100)}%
+                              return (
+                                <div key={li.lineItemIndex} className="val-line-item-row">
+                                  <span className="val-line-item-name">{li.lineItemName}</span>
+                                  <span className="val-line-item-arrow">&rarr;</span>
+                                  <div className="val-line-item-adset">
+                                    {hasAutoAdSet && selectedAdSetId === topAdSet.metaAdSetId ? (
+                                      <span style={{ fontSize: "var(--text-sm)" }}>
+                                        {topAdSet.metaAdSetName}{" "}
+                                        <span className={`badge ${getConfidenceClass(topAdSet.score)}`}>
+                                          {Math.round(topAdSet.score * 100)}%
+                                        </span>
                                       </span>
-                                    </span>
-                                  ) : (
-                                    <select
-                                      className="input val-select"
-                                      value={selectedAdSetId ?? (hasAutoAdSet ? topAdSet.metaAdSetId : "")}
-                                      onChange={(e) => {
-                                        if (e.target.value) {
-                                          handleSelectAdSet(
-                                            suggestion.campaignGroupId,
-                                            li.lineItemIndex,
-                                            e.target.value,
-                                          );
-                                        }
-                                      }}
-                                      style={{ minWidth: "200px" }}
-                                    >
-                                      <option value="">Select an ad set...</option>
-                                      {adSets.map((as) => (
-                                        <option key={as.metaAdSetId} value={as.metaAdSetId}>
-                                          {as.name}
-                                        </option>
-                                      ))}
-                                      {/* Also include candidates from suggestions that may not be in the campaign */}
-                                      {li.candidates
-                                        .filter((c) => !adSets.some((as) => as.metaAdSetId === c.metaAdSetId))
-                                        .map((c) => (
-                                          <option key={c.metaAdSetId} value={c.metaAdSetId}>
-                                            {c.metaAdSetName}
+                                    ) : (
+                                      <select
+                                        className="input val-select"
+                                        value={selectedAdSetId ?? (hasAutoAdSet ? topAdSet.metaAdSetId : "")}
+                                        onChange={(e) => {
+                                          if (e.target.value) {
+                                            handleSelectAdSet(
+                                              suggestion.campaignGroupId,
+                                              li.lineItemIndex,
+                                              e.target.value,
+                                            );
+                                          }
+                                        }}
+                                        style={{ minWidth: "200px" }}
+                                      >
+                                        <option value="">Select an ad set...</option>
+                                        {adSets.map((as) => (
+                                          <option key={as.metaAdSetId} value={as.metaAdSetId}>
+                                            {as.name}
                                           </option>
                                         ))}
-                                    </select>
-                                  )}
+                                        {li.candidates
+                                          .filter((c) => !adSets.some((as) => as.metaAdSetId === c.metaAdSetId))
+                                          .map((c) => (
+                                            <option key={c.metaAdSetId} value={c.metaAdSetId}>
+                                              {c.metaAdSetName}
+                                            </option>
+                                          ))}
+                                      </select>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {!isSkipped && suggestion.lineItemSuggestions.length === 0 && (
+                        <div className="val-match-card-body">
+                          <p style={{ fontSize: "var(--text-sm)", color: "var(--color-text-secondary)" }}>
+                            Loading ad set suggestions...
+                          </p>
+                        </div>
+                      )}
+
+                      {isSkipped && (
+                        <div className="val-match-card-body">
+                          <p className="val-skipped-label">Skipped — will not be matched</p>
                         </div>
                       )}
                     </div>
-                  )}
-
-                  {isSkipped && (
-                    <div className="val-match-card-body">
-                      <p className="val-skipped-label">Skipped — will not be matched</p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Unmatched Meta campaigns */}
-          {unmatchedMeta.length > 0 && (
-            <div className="val-unmatched-section">
-              <h3 className="val-unmatched-header">
-                Unmatched Meta Campaigns ({unmatchedMeta.length})
-              </h3>
-              <div className="val-unmatched-list">
-                {unmatchedMeta.map((c) => (
-                  <div key={c.metaCampaignId} className="val-unmatched-item">
-                    <span className="val-unmatched-name">{c.name}</span>
-                    <span className={`badge ${c.status === "ACTIVE" ? "badge-success" : ""}`}>
-                      {c.status}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="val-phase-actions">
-            <button
-              className="btn btn-primary"
-              onClick={handleConfirmMatches}
-              disabled={activeSelectionCount === 0 || loading}
-            >
-              {loading ? (
-                <span className="val-btn-loading">
-                  <span className="val-spinner" />
-                  Confirming...
-                </span>
-              ) : (
-                `Confirm ${activeSelectionCount} Match${activeSelectionCount !== 1 ? "es" : ""}`
-              )}
-            </button>
+            <div className="val-phase-actions">
+              <button
+                className="btn btn-primary"
+                onClick={handleConfirmMatches}
+                disabled={activeSelectionCount === 0 || loading}
+              >
+                {loading ? (
+                  <span className="val-btn-loading">
+                    <span className="val-spinner" />
+                    Confirming...
+                  </span>
+                ) : (
+                  `Confirm ${activeSelectionCount} Match${activeSelectionCount !== 1 ? "es" : ""}`
+                )}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Phase 4: Validate */}
       {phase === 4 && (

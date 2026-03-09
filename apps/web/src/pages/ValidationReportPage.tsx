@@ -6,6 +6,7 @@ import type {
   ValidationReport,
   CampaignValidationResult,
   FieldComparison,
+  LineItemValidationResult,
   ValidationFlag,
 } from "@guardrails/shared";
 
@@ -59,8 +60,6 @@ export function ValidationReportPage() {
 
   // Expand all details by default
   const [collapsedCampaigns, setCollapsedCampaigns] = useState<Set<string>>(new Set());
-  // Show passed fields toggle per campaign
-  const [showPassed, setShowPassed] = useState<Set<string>>(new Set());
 
   const fetchReport = useCallback(async () => {
     if (!id) return;
@@ -135,14 +134,6 @@ export function ValidationReportPage() {
     });
   };
 
-  const toggleShowPassed = (campaignGroupId: string) => {
-    setShowPassed((prev) => {
-      const next = new Set(prev);
-      if (next.has(campaignGroupId)) next.delete(campaignGroupId);
-      else next.add(campaignGroupId);
-      return next;
-    });
-  };
 
   const handleCreateFlag = async () => {
     if (!id || !flagForm || !flagNote.trim()) return;
@@ -278,9 +269,19 @@ export function ValidationReportPage() {
           onClick={handleRevalidate}
           disabled={revalidating}
         >
-          {revalidating ? "Validating..." : "Re-validate"}
+          {revalidating ? "Re-validating..." : "Re-validate"}
         </button>
       </div>
+
+      {/* Re-validation overlay */}
+      {revalidating && (
+        <div className="rpt-revalidating-overlay">
+          <div className="rpt-revalidating-content">
+            <div className="job-processing-spinner" />
+            <p>Fetching latest campaigns from Meta and re-validating...</p>
+          </div>
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (
@@ -330,17 +331,17 @@ export function ValidationReportPage() {
       <div className="rpt-cards">
         {report.results.map((result) => {
           const isCollapsed = collapsedCampaigns.has(result.campaignGroupId);
-          const showPassedFields = showPassed.has(result.campaignGroupId);
           const failed = result.fieldComparisons.filter((c) => c.status === "fail");
           const warned = result.fieldComparisons.filter((c) => c.status === "warning");
-          const passed = result.fieldComparisons.filter((c) => c.status === "pass");
-          const skippedFields = result.fieldComparisons.filter((c) => c.status === "skipped");
           const campaignFlags = flags.filter(
             (f) => f.campaignGroupId === result.campaignGroupId && f.metaCampaignId === result.metaCampaignId,
           );
+          const lineItemResults = result.lineItemResults ?? [];
+          const lineItemFailed = lineItemResults.some((lr) => lr.fieldComparisons.some((c) => c.status === "fail"));
+          const lineItemWarned = lineItemResults.some((lr) => lr.fieldComparisons.some((c) => c.status === "warning"));
 
           // Derive status from actual field results (don't trust stored overallStatus)
-          const derivedStatus = failed.length > 0 ? "fail" : warned.length > 0 ? "warning" : "pass";
+          const derivedStatus = (failed.length > 0 || lineItemFailed) ? "fail" : (warned.length > 0 || lineItemWarned) ? "warning" : "pass";
 
           return (
             <div
@@ -378,92 +379,34 @@ export function ValidationReportPage() {
                 <span className="rpt-card-chevron">{isCollapsed ? "\u25BC" : "\u25B2"}</span>
               </div>
 
-              {/* Card body */}
+              {/* Card body — full comparison table */}
               {!isCollapsed && (
                 <div className="rpt-card-body">
-                  {/* Failed fields — always shown prominently */}
-                  {failed.length > 0 && (
-                    <div className="rpt-field-group">
-                      <div className="rpt-field-group-label rpt-field-group-fail">
-                        Failed ({failed.length})
-                      </div>
-                      {failed.map((fc) => (
-                        <FieldRow
-                          key={fc.field}
-                          fc={fc}
-                          result={result}
-                          campaignFlags={campaignFlags}
-                          flagForm={flagForm}
-                          flagSeverity={flagSeverity}
-                          flagNote={flagNote}
-                          flagSubmitting={flagSubmitting}
-                          currentUserId={user?.id ?? null}
-                          onOpenFlagForm={setFlagForm}
-                          onCloseFlagForm={() => setFlagForm(null)}
-                          onSetFlagSeverity={setFlagSeverity}
-                          onSetFlagNote={setFlagNote}
-                          onSubmitFlag={handleCreateFlag}
-                          onDeleteFlag={handleDeleteFlag}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <table className="rpt-compare-table">
+                    <thead>
+                      <tr>
+                        <th className="rpt-compare-th-field">Field</th>
+                        <th className="rpt-compare-th-plan">Plan</th>
+                        <th className="rpt-compare-th-meta">Meta</th>
+                        <th className="rpt-compare-th-status">Status</th>
+                        <th className="rpt-compare-th-flag"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.fieldComparisons.map((fc) => {
+                        const existingFlag = campaignFlags.find((f) => f.field === fc.field && !f.resolved);
+                        const isFormOpen =
+                          flagForm?.campaignGroupId === result.campaignGroupId &&
+                          flagForm?.metaCampaignId === result.metaCampaignId &&
+                          flagForm?.field === fc.field;
 
-                  {/* Warning fields */}
-                  {warned.length > 0 && (
-                    <div className="rpt-field-group">
-                      <div className="rpt-field-group-label rpt-field-group-warn">
-                        Warnings ({warned.length})
-                      </div>
-                      {warned.map((fc) => (
-                        <FieldRow
-                          key={fc.field}
-                          fc={fc}
-                          result={result}
-                          campaignFlags={campaignFlags}
-                          flagForm={flagForm}
-                          flagSeverity={flagSeverity}
-                          flagNote={flagNote}
-                          flagSubmitting={flagSubmitting}
-                          currentUserId={user?.id ?? null}
-                          onOpenFlagForm={setFlagForm}
-                          onCloseFlagForm={() => setFlagForm(null)}
-                          onSetFlagSeverity={setFlagSeverity}
-                          onSetFlagNote={setFlagNote}
-                          onSubmitFlag={handleCreateFlag}
-                          onDeleteFlag={handleDeleteFlag}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Skipped fields — show as muted note */}
-                  {skippedFields.length > 0 && (
-                    <div className="rpt-skipped-note">
-                      {skippedFields.length} field{skippedFields.length !== 1 ? "s" : ""} skipped (no data in plan):
-                      {" "}{skippedFields.map((f) => fieldLabel(f.field)).join(", ")}
-                    </div>
-                  )}
-
-                  {/* Passed fields — collapsed by default */}
-                  {passed.length > 0 && (
-                    <div className="rpt-field-group">
-                      <button
-                        className="rpt-show-passed-btn"
-                        onClick={() => toggleShowPassed(result.campaignGroupId)}
-                      >
-                        {showPassedFields
-                          ? `Hide ${passed.length} passed check${passed.length !== 1 ? "s" : ""}`
-                          : `Show ${passed.length} passed check${passed.length !== 1 ? "s" : ""}`}
-                      </button>
-                      {showPassedFields &&
-                        passed.map((fc) => (
-                          <FieldRow
+                        return (
+                          <ComparisonRow
                             key={fc.field}
                             fc={fc}
                             result={result}
-                            campaignFlags={campaignFlags}
-                            flagForm={flagForm}
+                            existingFlag={existingFlag ?? null}
+                            isFormOpen={isFormOpen}
                             flagSeverity={flagSeverity}
                             flagNote={flagNote}
                             flagSubmitting={flagSubmitting}
@@ -475,7 +418,87 @@ export function ValidationReportPage() {
                             onSubmitFlag={handleCreateFlag}
                             onDeleteFlag={handleDeleteFlag}
                           />
-                        ))}
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  {/* Line item results (1:N strategy) */}
+                  {lineItemResults.length > 0 && (
+                    <div className="rpt-line-items">
+                      {lineItemResults.map((lr) => {
+                        const liFailed = lr.fieldComparisons.filter((c) => c.status === "fail");
+                        const liWarned = lr.fieldComparisons.filter((c) => c.status === "warning");
+                        const liStatus = liFailed.length > 0 ? "fail" : liWarned.length > 0 ? "warning" : "pass";
+
+                        return (
+                          <div key={lr.lineItemIndex} className={`rpt-line-item rpt-card-${liStatus}`}>
+                            <div className="rpt-line-item-header">
+                              <span className={`rpt-card-dot rpt-card-dot-${liStatus}`} />
+                              <span className="rpt-line-item-plan">{lr.lineItemName}</span>
+                              <span className="rpt-card-arrow">&rarr;</span>
+                              <span className="rpt-line-item-meta">{lr.metaAdSetName}</span>
+                              <span className="rpt-card-summary">
+                                {liFailed.length > 0 && (
+                                  <span className="rpt-card-count rpt-card-count-fail">{liFailed.length} failed</span>
+                                )}
+                                {liWarned.length > 0 && (
+                                  <span className="rpt-card-count rpt-card-count-warn">{liWarned.length} warning{liWarned.length !== 1 ? "s" : ""}</span>
+                                )}
+                                {liFailed.length === 0 && liWarned.length === 0 && (
+                                  <span className="rpt-card-count rpt-card-count-pass">All checks passed</span>
+                                )}
+                              </span>
+                            </div>
+                            <table className="rpt-compare-table">
+                              <thead>
+                                <tr>
+                                  <th className="rpt-compare-th-field">Field</th>
+                                  <th className="rpt-compare-th-plan">Plan</th>
+                                  <th className="rpt-compare-th-meta">Meta</th>
+                                  <th className="rpt-compare-th-status">Status</th>
+                                  <th className="rpt-compare-th-flag"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lr.fieldComparisons.map((fc) => {
+                                  const existingFlag = campaignFlags.find((f) => f.field === `${lr.lineItemIndex}:${fc.field}` && !f.resolved);
+                                  const isFormOpen =
+                                    flagForm?.campaignGroupId === result.campaignGroupId &&
+                                    flagForm?.metaCampaignId === result.metaCampaignId &&
+                                    flagForm?.field === `${lr.lineItemIndex}:${fc.field}`;
+
+                                  return (
+                                    <ComparisonRow
+                                      key={fc.field}
+                                      fc={fc}
+                                      result={result}
+                                      existingFlag={existingFlag ?? null}
+                                      isFormOpen={isFormOpen}
+                                      flagSeverity={flagSeverity}
+                                      flagNote={flagNote}
+                                      flagSubmitting={flagSubmitting}
+                                      currentUserId={user?.id ?? null}
+                                      onOpenFlagForm={(_form) =>
+                                        setFlagForm({
+                                          campaignGroupId: result.campaignGroupId,
+                                          metaCampaignId: result.metaCampaignId,
+                                          field: `${lr.lineItemIndex}:${fc.field}`,
+                                        })
+                                      }
+                                      onCloseFlagForm={() => setFlagForm(null)}
+                                      onSetFlagSeverity={setFlagSeverity}
+                                      onSetFlagNote={setFlagNote}
+                                      onSubmitFlag={handleCreateFlag}
+                                      onDeleteFlag={handleDeleteFlag}
+                                    />
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
@@ -516,12 +539,12 @@ export function ValidationReportPage() {
   );
 }
 
-// ── Field Row ──
-function FieldRow({
+// ── Comparison Row ──
+function ComparisonRow({
   fc,
   result,
-  campaignFlags,
-  flagForm,
+  existingFlag,
+  isFormOpen,
   flagSeverity,
   flagNote,
   flagSubmitting,
@@ -535,8 +558,8 @@ function FieldRow({
 }: {
   fc: FieldComparison;
   result: CampaignValidationResult;
-  campaignFlags: ValidationFlag[];
-  flagForm: { campaignGroupId: string; metaCampaignId: string; field: string } | null;
+  existingFlag: ValidationFlag | null;
+  isFormOpen: boolean;
   flagSeverity: "critical" | "warning" | "info";
   flagNote: string;
   flagSubmitting: boolean;
@@ -548,28 +571,31 @@ function FieldRow({
   onSubmitFlag: () => void;
   onDeleteFlag: (flagId: string) => void;
 }) {
-  const existingFlag = campaignFlags.find((f) => f.field === fc.field && !f.resolved);
-  const isFormOpen =
-    flagForm?.campaignGroupId === result.campaignGroupId &&
-    flagForm?.metaCampaignId === result.metaCampaignId &&
-    flagForm?.field === fc.field;
+  const statusIcon = fc.status === "pass" ? "\u2713" : fc.status === "fail" ? "\u2717" : fc.status === "warning" ? "\u26A0" : "\u2014";
+  const statusLabel = fc.status === "pass" ? "Match" : fc.status === "fail" ? "Mismatch" : fc.status === "warning" ? "Warning" : "No plan data";
 
   return (
-    <div className={`rpt-field-row rpt-field-row-${fc.status}`}>
-      <div className="rpt-field-row-main">
-        <div className="rpt-field-row-left">
-          <span className={`rpt-field-status-icon rpt-field-status-icon-${fc.status}`}>
-            {fc.status === "pass" ? "\u2713" : fc.status === "fail" ? "\u2717" : "\u26A0"}
+    <>
+      <tr className={`rpt-compare-row rpt-compare-row-${fc.status}`}>
+        <td className="rpt-compare-field">{fieldLabel(fc.field)}</td>
+        <td className={`rpt-compare-plan ${fc.expected === "Not in plan" ? "rpt-compare-empty" : ""}`}>
+          {fc.expected || "\u2014"}
+        </td>
+        <td className={`rpt-compare-meta ${fc.actual === "Not set" ? "rpt-compare-empty" : ""}`}>
+          {fc.actual || "\u2014"}
+        </td>
+        <td className="rpt-compare-status">
+          <span className={`rpt-compare-badge rpt-compare-badge-${fc.status}`}>
+            {statusIcon} {statusLabel}
           </span>
-          <span className="rpt-field-label">{fieldLabel(fc.field)}</span>
-        </div>
-        <div className="rpt-field-row-right">
+        </td>
+        <td className="rpt-compare-flag-cell">
           {existingFlag ? (
             <span
               className={`rpt-flag-inline-badge rpt-flag-severity-${existingFlag.severity}`}
               title={existingFlag.note}
             >
-              &#9873; {severityLabel(existingFlag.severity)}
+              &#9873;
               {(currentUserId === existingFlag.flaggedByUserId || !currentUserId) && (
                 <button
                   className="rpt-flag-inline-delete"
@@ -580,7 +606,7 @@ function FieldRow({
                 </button>
               )}
             </span>
-          ) : (
+          ) : fc.status !== "skipped" ? (
             <button
               className="rpt-flag-icon-btn"
               onClick={() =>
@@ -594,61 +620,51 @@ function FieldRow({
             >
               &#9873;
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* Reason / message */}
-      <div className="rpt-field-row-message">{fc.message}</div>
-
-      {/* Expected vs Actual for failures/warnings */}
-      {(fc.status === "fail" || fc.status === "warning") && (fc.expected || fc.actual) && (
-        <div className="rpt-field-row-compare">
-          <div className="rpt-field-compare-item">
-            <span className="rpt-field-compare-label">Plan:</span>
-            <span className="rpt-field-compare-value">{fc.expected || "\u2014"}</span>
-          </div>
-          <div className="rpt-field-compare-item">
-            <span className="rpt-field-compare-label">Meta:</span>
-            <span className="rpt-field-compare-value">{fc.actual || "\u2014"}</span>
-          </div>
-        </div>
+          ) : null}
+        </td>
+      </tr>
+      {fc.status !== "pass" && fc.status !== "skipped" && fc.message && (
+        <tr className="rpt-compare-message-row">
+          <td colSpan={5} className="rpt-compare-message">{fc.message}</td>
+        </tr>
       )}
-
-      {/* Inline flag form */}
       {isFormOpen && (
-        <div className="rpt-flag-inline-form">
-          <div className="rpt-flag-form-controls">
-            <select
-              className="rpt-flag-select"
-              value={flagSeverity}
-              onChange={(e) => onSetFlagSeverity(e.target.value as "critical" | "warning" | "info")}
-            >
-              <option value="critical">Critical</option>
-              <option value="warning">Warning</option>
-              <option value="info">Info</option>
-            </select>
-            <textarea
-              className="rpt-flag-textarea"
-              placeholder="Describe the issue (required)"
-              value={flagNote}
-              onChange={(e) => onSetFlagNote(e.target.value)}
-              rows={2}
-            />
-          </div>
-          <div className="rpt-flag-form-actions">
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={onSubmitFlag}
-              disabled={flagSubmitting || !flagNote.trim()}
-            >
-              {flagSubmitting ? "Submitting..." : "Submit Flag"}
-            </button>
-            <button className="btn btn-sm" onClick={onCloseFlagForm}>Cancel</button>
-          </div>
-        </div>
+        <tr className="rpt-flag-form-row">
+          <td colSpan={5}>
+            <div className="rpt-flag-inline-form">
+              <div className="rpt-flag-form-controls">
+                <select
+                  className="rpt-flag-select"
+                  value={flagSeverity}
+                  onChange={(e) => onSetFlagSeverity(e.target.value as "critical" | "warning" | "info")}
+                >
+                  <option value="critical">Critical</option>
+                  <option value="warning">Warning</option>
+                  <option value="info">Info</option>
+                </select>
+                <textarea
+                  className="rpt-flag-textarea"
+                  placeholder="Describe the issue (required)"
+                  value={flagNote}
+                  onChange={(e) => onSetFlagNote(e.target.value)}
+                  rows={2}
+                />
+              </div>
+              <div className="rpt-flag-form-actions">
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={onSubmitFlag}
+                  disabled={flagSubmitting || !flagNote.trim()}
+                >
+                  {flagSubmitting ? "Submitting..." : "Submit Flag"}
+                </button>
+                <button className="btn btn-sm" onClick={onCloseFlagForm}>Cancel</button>
+              </div>
+            </div>
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   );
 }
 
