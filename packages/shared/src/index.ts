@@ -9,3 +9,4 @@ export interface ApiError {
 export * from './contracts/meta';
 export * from './contracts/campaign';
 export * from './contracts/guardrail';
+export * from './contracts/validation';

@@ -166,7 +166,7 @@ export interface PipelineEvent {
 export interface UploadPreviewResponse {
   id: string;
   fileName: string;
-  status: 'processing' | 'completed' | 'error' | 'awaiting_review';
+  status: 'processing' | 'completed' | 'error' | 'awaiting_review' | 'validating' | 'validated';
   totalRows: number;
   groups: CampaignGroup[];
   errorMessage?: string;

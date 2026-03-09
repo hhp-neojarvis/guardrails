@@ -18,7 +18,7 @@ Media executors manually translate Excel-based media plans into campaigns in soc
 
 ## Outcome
 
-A tool that takes a media plan (Excel) + natural language guardrails, interprets the plan correctly, validates it, and creates campaigns in Meta Ads — catching errors before they reach the platform.
+A tool that takes a media plan (Excel) + natural language guardrails, interprets the plan correctly, fetches existing campaigns from Meta Ads, matches them to the plan, and validates them — catching discrepancies between what was planned and what was created.
 
 ---
 
@@ -31,8 +31,8 @@ A tool that takes a media plan (Excel) + natural language guardrails, interprets
 | R2 | Accept guardrails as natural language instructions at company level, reusable across campaigns | Must-have |
 | R3 | Parse ambiguous Excel column values into structured campaign parameters (locations, demographics, buy types, assets, inventory) using LLM interpretation | Must-have |
 | R4 | Validate campaign configurations against guardrails before execution | Must-have |
-| R5 | Auto-create campaigns via Meta Ads API (as drafts, never auto-publish) | Must-have |
-| R6 | Three-stage lifecycle: Preview (in-tool) → Draft (in Meta) → Published (explicit user action only) | Must-have |
+| R5 | ~~Auto-create campaigns via Meta Ads API~~ **Replaced by R15-R19 (V7 pivot)** | Removed |
+| R6 | ~~Three-stage lifecycle: Preview → Draft → Published~~ **Replaced by fetch-match-validate flow** | Removed |
 | R7 | Two roles for MVP: super_admin (manages users, sets guardrails) and executor (executes plans). Both can do everything an executor does. | Must-have |
 | R8 | Guardrail generation: users describe common mistakes → system generates guardrail rules → user edits/approves → rules persist at company level | Must-have |
 | R9 | One campaign per unique Markets + Channel combination; rows within that group become line items (ad sets/ads) | Must-have |
@@ -41,6 +41,11 @@ A tool that takes a media plan (Excel) + natural language guardrails, interprets
 | R12 | Users can log in and authenticate to the tool | Must-have |
 | R13 | Users can connect specific Meta Ad Accounts via OAuth; tool uses these credentials to act on their behalf. User selects which ad account per execution | Must-have |
 | R14 | Multi-tenant: each company is an isolated tenant. Users, guardrails, campaigns, audit logs all scoped to company | Must-have |
+| R15 | Fetch existing PAUSED + ACTIVE campaigns from Meta (full hierarchy: campaigns → ad sets → ads + creatives) | Must-have |
+| R16 | Auto-suggest matches between Meta campaigns and Excel line items using name + geo + dates; user confirms or corrects | Must-have |
+| R17 | Validate matched campaigns against both Excel plan fields and natural language guardrails | Must-have |
+| R18 | Two-layer validation report: summary table + expandable per-campaign detail cards with expected vs. actual | Must-have |
+| R19 | Flag & annotation system: users flag issues for team review, add notes, resolve flags | Must-have |
 
 ---
 
@@ -295,8 +300,9 @@ Rows sharing the same **Markets + Channel** = one campaign. Rows within that gro
 | **V2** | **Full Interpretation** | A2 (all columns) | See fully structured campaign configs |
 | **V3** | **Guardrail Setup** | A3 | Describe mistakes, see generated rules, edit, save |
 | **V4** | **Validation + Preview + Override** | A4 + A5 + A8 | Job-based pipeline with guardrail validation, pause on violations, per-rule per-campaign override with audit logging |
-| **V5** | **Draft Creation** | A6 | PAUSED campaigns appear in Meta Ads Manager |
-| **V6** | **Publish** | A7 | Publish from tool, verify live in Meta |
+| **V5** | ~~Draft Creation~~ | ~~A6~~ | ~~Removed — replaced by V7~~ |
+| **V6** | ~~Publish~~ | ~~A7~~ | ~~Removed — replaced by V7~~ |
+| **V7** | **Fetch → Match → Validate** | B1-B5 | Fetch Meta campaigns, match to plan, validate, report with flagging |
 
 ### Slice Order Rationale
 
@@ -307,5 +313,6 @@ Rows sharing the same **Markets + Channel** = one campaign. Rows within that gro
 - **V3 independent:** Guardrail setup doesn't need full pipeline (could parallel with V1/V2)
 - **V4 is the core value prop:** First time user sees guardrails catching errors
 - **V5/V6 separated:** Draft creation is reversible, publishing is not
+- **V7 replaces V5/V6:** Requirement pivot — instead of creating campaigns in Meta, we now fetch existing ones and validate them against the plan
 
 ---
