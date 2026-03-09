@@ -507,23 +507,6 @@ export function ValidationReportPage() {
         </div>
       )}
 
-      {/* Unmatched Meta Campaigns */}
-      {report.unmatchedMetaCampaigns.length > 0 && (
-        <div className="rpt-section">
-          <h2 className="rpt-section-title">Not in Plan</h2>
-          <div className="rpt-unmatched-list">
-            {report.unmatchedMetaCampaigns.map((c) => (
-              <div key={c.id} className="rpt-unmatched-card rpt-unmatched-info">
-                <span className="rpt-unmatched-icon">&#8505;</span>
-                <div>
-                  <div className="rpt-unmatched-name">{c.name}</div>
-                  <div className="rpt-unmatched-detail">Meta campaign not found in media plan</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
