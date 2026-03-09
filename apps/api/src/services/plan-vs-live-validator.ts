@@ -254,10 +254,21 @@ function compareGeoTargeting(
   };
 }
 
+/** Normalize gender codes: [] and [1,2] both mean "all genders" */
+function normalizeGenders(codes: number[]): number[] {
+  const sorted = [...codes].sort();
+  // Meta returns [] when all genders selected; [1,2] also means all
+  if (sorted.length === 0 || (sorted.length === 2 && sorted[0] === 1 && sorted[1] === 2)) {
+    return [];
+  }
+  return sorted;
+}
+
 /** Format gender codes to readable strings */
 function formatGenders(codes: number[]): string {
-  if (codes.length === 0) return "All";
-  return codes.map((c) => (c === 1 ? "Male" : c === 2 ? "Female" : String(c))).join(", ");
+  const normalized = normalizeGenders(codes);
+  if (normalized.length === 0) return "All";
+  return normalized.map((c) => (c === 1 ? "Male" : c === 2 ? "Female" : String(c))).join(", ");
 }
 
 /** Collect all unique placements from Meta ad sets */
@@ -328,9 +339,7 @@ function compareGenders(
   }
 
   const planStr = formatGenders(planTargeting.genders);
-  const planSorted = [...planTargeting.genders].sort().join(",");
-  const metaSorted = [...metaGenders].sort().join(",");
-  const pass = planSorted === metaSorted;
+  const pass = normalizeGenders(planTargeting.genders).join(",") === normalizeGenders(metaGenders).join(",");
 
   return {
     field: "genders",
@@ -346,12 +355,12 @@ function compareFrequencyCap(
   meta: MetaCampaignSnapshot,
 ): FieldComparison {
   const planFreq = plan.lineItems[0]?.avgFrequency;
-  const planVal = planFreq ? parseFloat(planFreq) : NaN;
+  const planCap = planFreq ? parseFloat(planFreq) : NaN;
   const firstAdSet = meta.adSets[0];
-  const metaVal = firstAdSet?.frequencyControlSpecs?.[0]?.maxFrequency ?? NaN;
-  const metaStr = isNaN(metaVal) ? "Not set" : String(metaVal);
+  const metaAvgFreq = firstAdSet?.insightsFrequency ?? NaN;
+  const metaStr = isNaN(metaAvgFreq) ? "Not set" : metaAvgFreq.toFixed(2);
 
-  if (isNaN(planVal)) {
+  if (isNaN(planCap)) {
     return {
       field: "frequency_cap",
       status: "skipped",
@@ -361,14 +370,26 @@ function compareFrequencyCap(
     };
   }
 
-  const pass = !isNaN(metaVal) && Math.abs(planVal - metaVal) < 0.01;
+  if (isNaN(metaAvgFreq)) {
+    return {
+      field: "frequency_cap",
+      status: "warning",
+      expected: `≤ ${planCap}`,
+      actual: "Not set",
+      message: "Avg frequency not available in Meta insights — campaign may not have delivered yet",
+    };
+  }
+
+  const pass = metaAvgFreq <= planCap;
 
   return {
     field: "frequency_cap",
     status: pass ? "pass" : "fail",
-    expected: String(planVal),
+    expected: `≤ ${planCap}`,
     actual: metaStr,
-    message: pass ? "Frequency cap matches" : "Frequency cap mismatch",
+    message: pass
+      ? `Avg frequency (${metaStr}) is within cap (${planCap})`
+      : `Avg frequency (${metaStr}) exceeds cap (${planCap})`,
   };
 }
 
@@ -643,26 +664,41 @@ function extractAdSetGeoKeys(adSet: MetaAdSetSnapshot): Set<string> {
   return keys;
 }
 
+/** Extract readable geo names from a single ad set */
+function extractAdSetGeoNames(adSet: MetaAdSetSnapshot): string[] {
+  const names: string[] = [];
+  const geo = adSet.targeting.geoLocations;
+  if (geo.countries) names.push(...geo.countries);
+  if (geo.regions) names.push(...geo.regions.map((r) => r.name));
+  if (geo.cities) names.push(...geo.cities.map((c) => c.name));
+  return [...new Set(names)];
+}
+
 function compareLineItemGeoTargeting(
   planGroup: CampaignGroup,
   adSet: MetaAdSetSnapshot,
 ): FieldComparison {
   const planKeys = new Set(planGroup.resolvedGeoTargets.map((g) => g.key));
   const metaKeys = extractAdSetGeoKeys(adSet);
+  const planNames = planGroup.resolvedGeoTargets.map((g) => g.name);
+  const metaNames = extractAdSetGeoNames(adSet);
 
   if (planKeys.size === 0) {
     return {
       field: "geo_targeting",
       status: "skipped",
-      expected: "",
-      actual: [...metaKeys].join(", "),
+      expected: "Not in plan",
+      actual: metaNames.length > 0 ? metaNames.join(", ") : "Not set",
       message: "No plan geo targets — skipped",
     };
   }
 
   const missingFromMeta: string[] = [];
   for (const k of planKeys) {
-    if (!metaKeys.has(k)) missingFromMeta.push(k);
+    if (!metaKeys.has(k)) {
+      const name = planGroup.resolvedGeoTargets.find((g) => g.key === k)?.name ?? k;
+      missingFromMeta.push(name);
+    }
   }
 
   const extraInMeta: string[] = [];
@@ -675,20 +711,20 @@ function compareLineItemGeoTargeting(
 
   if (missingFromMeta.length > 0) {
     status = "fail";
-    message = `Plan geo keys missing from Meta ad set: ${missingFromMeta.join(", ")}`;
+    message = `Plan geos missing from Meta ad set: ${missingFromMeta.join(", ")}`;
   } else if (extraInMeta.length > 0) {
     status = "warning";
-    message = `Meta ad set has extra geo keys not in plan: ${extraInMeta.join(", ")}`;
+    message = `Meta ad set has extra geos not in plan`;
   } else {
     status = "pass";
-    message = "All plan geo keys present in Meta ad set";
+    message = "Geo targeting matches";
   }
 
   return {
     field: "geo_targeting",
     status,
-    expected: [...planKeys].sort().join(", "),
-    actual: [...metaKeys].sort().join(", "),
+    expected: planNames.length > 0 ? planNames.join(", ") : [...planKeys].sort().join(", "),
+    actual: metaNames.length > 0 ? metaNames.join(", ") : [...metaKeys].sort().join(", "),
     message,
   };
 }
@@ -752,19 +788,16 @@ function compareLineItemGenders(
   const metaGenders = adSet.targeting.genders ?? [];
   const planGenders = planTargeting.genders;
 
-  const planSorted = [...planGenders].sort().join(",");
-  const metaSorted = [...metaGenders].sort().join(",");
-
-  const pass = planSorted === metaSorted;
+  const planStr = formatGenders(planGenders);
+  const metaStr = formatGenders(metaGenders);
+  const pass = normalizeGenders(planGenders).join(",") === normalizeGenders(metaGenders).join(",");
 
   return {
     field: "genders",
     status: pass ? "pass" : "fail",
-    expected: planSorted,
-    actual: metaSorted,
-    message: pass
-      ? "Genders match"
-      : `Genders mismatch: plan=[${planSorted}], meta=[${metaSorted}]`,
+    expected: planStr,
+    actual: metaStr,
+    message: pass ? "Genders match" : "Genders mismatch",
   };
 }
 
@@ -772,9 +805,9 @@ function compareLineItemFrequencyCap(
   lineItem: ExcelRow,
   adSet: MetaAdSetSnapshot,
 ): FieldComparison {
-  const planVal = lineItem.avgFrequency ? parseFloat(lineItem.avgFrequency) : NaN;
+  const planCap = lineItem.avgFrequency ? parseFloat(lineItem.avgFrequency) : NaN;
 
-  if (isNaN(planVal)) {
+  if (isNaN(planCap)) {
     return {
       field: "frequency_cap",
       status: "skipped",
@@ -784,18 +817,29 @@ function compareLineItemFrequencyCap(
     };
   }
 
-  const metaVal = adSet.frequencyControlSpecs?.[0]?.maxFrequency ?? NaN;
+  const metaAvgFreq = adSet.insightsFrequency ?? NaN;
 
-  const pass = !isNaN(metaVal) && Math.abs(planVal - metaVal) < 0.01;
+  if (isNaN(metaAvgFreq)) {
+    return {
+      field: "frequency_cap",
+      status: "warning",
+      expected: `≤ ${planCap}`,
+      actual: "Not set",
+      message: "Avg frequency not available in Meta insights — campaign may not have delivered yet",
+    };
+  }
+
+  const pass = metaAvgFreq <= planCap;
+  const metaStr = metaAvgFreq.toFixed(2);
 
   return {
     field: "frequency_cap",
     status: pass ? "pass" : "fail",
-    expected: String(planVal),
-    actual: isNaN(metaVal) ? "not set" : String(metaVal),
+    expected: `≤ ${planCap}`,
+    actual: metaStr,
     message: pass
-      ? "Frequency cap matches"
-      : `Frequency cap mismatch: plan=${planVal}, meta=${isNaN(metaVal) ? "not set" : metaVal}`,
+      ? `Avg frequency (${metaStr}) is within cap (${planCap})`
+      : `Avg frequency (${metaStr}) exceeds cap (${planCap})`,
   };
 }
 
@@ -895,9 +939,10 @@ export function validateCampaignFieldsOneToMany(
   matchConfidence: number,
   lineItemMatches: Array<{ lineItemIndex: number; metaAdSetId: string }>,
 ): CampaignValidationResult {
-  // Campaign-level: only objective
+  // Campaign-level: objective + buying type (budget/dates/targeting are per ad set)
   const campaignFieldComparisons: FieldComparison[] = [
     compareObjective(planCampaign, metaCampaign),
+    compareBuyingType(planCampaign, metaCampaign),
   ];
 
   // Build ad set lookup

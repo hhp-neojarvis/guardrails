@@ -12,8 +12,11 @@ const CAMPAIGN_FIELDS = [
   "status",
   "objective",
   "buying_type",
-  "adsets{id,name,status,start_time,end_time,daily_budget,lifetime_budget,billing_event,targeting,frequency_control_specs,ads{id,name,status,creative{image_hash,video_id,object_story_spec}}}",
+  "adsets{id,name,status,start_time,end_time,daily_budget,lifetime_budget,billing_event,targeting,ads{id,name,status,creative{image_hash,video_id,object_story_spec}}}",
 ].join(",");
+
+/** Fields to fetch separately for ad sets (frequency_control_specs gets silently dropped in nested campaign expansions) */
+const ADSET_FIELDS = "id,frequency_control_specs,rf_prediction_id";
 
 /** Ensure adAccountId starts with "act_" */
 function normalizeAdAccountId(adAccountId: string): string {
@@ -70,12 +73,25 @@ function mapTargeting(
   };
 }
 
-/** Map raw frequency control specs */
+/** Map raw frequency control specs — handles both direct array and { data: [...] } wrapper */
 function mapFrequencyControlSpecs(
-  raw: unknown[] | undefined,
+  raw: unknown,
 ): MetaAdSetSnapshot["frequencyControlSpecs"] {
-  if (!raw || raw.length === 0) return undefined;
-  return raw.map((spec) => {
+  if (!raw) return undefined;
+
+  // Meta may return as { data: [...] } or as a direct array
+  let specs: unknown[];
+  if (Array.isArray(raw)) {
+    specs = raw;
+  } else if (typeof raw === "object" && raw !== null && "data" in raw) {
+    specs = (raw as { data: unknown[] }).data ?? [];
+  } else {
+    return undefined;
+  }
+
+  if (specs.length === 0) return undefined;
+
+  return specs.map((spec) => {
     const s = spec as Record<string, unknown>;
     return {
       event: String(s.event ?? ""),
@@ -105,7 +121,7 @@ function mapAdSet(raw: Record<string, unknown>): MetaAdSetSnapshot {
     billingEvent: String(raw.billing_event ?? ""),
     targeting: mapTargeting(raw.targeting as Record<string, unknown> | undefined),
     frequencyControlSpecs: mapFrequencyControlSpecs(
-      raw.frequency_control_specs as unknown[] | undefined,
+      raw.frequency_control_specs,
     ),
     ads,
   };
@@ -166,6 +182,103 @@ async function handleErrorResponse(response: Response): Promise<never> {
 }
 
 /**
+ * Fetch frequency_control_specs for all ad sets in an ad account.
+ * Done as a separate call because Meta silently drops this field
+ * from nested campaign→adsets field expansions.
+ */
+interface AdSetFrequencyData {
+  frequencyControlSpecs?: MetaAdSetSnapshot["frequencyControlSpecs"];
+  insightsFrequency?: number;
+}
+
+async function fetchAdSetFrequencyData(
+  adAccountId: string,
+  headers: Record<string, string>,
+): Promise<Map<string, AdSetFrequencyData>> {
+  const dataByAdSetId = new Map<string, AdSetFrequencyData>();
+  const rfPredictionAdSets: Array<{ id: string; predictionId: string }> = [];
+
+  const queryParams = new URLSearchParams({
+    fields: ADSET_FIELDS,
+    limit: "500",
+  });
+
+  let url: string | null =
+    `${META_API_BASE}/${adAccountId}/adsets?${queryParams.toString()}`;
+
+  while (url) {
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      console.warn("Failed to fetch ad set frequency data separately");
+      break;
+    }
+
+    const body = (await response.json()) as {
+      data?: unknown[];
+      paging?: { next?: string };
+    };
+
+    for (const raw of body.data ?? []) {
+      const r = raw as Record<string, unknown>;
+      const id = String(r.id ?? "");
+      const specs = mapFrequencyControlSpecs(r.frequency_control_specs);
+      if (id && specs) {
+        dataByAdSetId.set(id, { frequencyControlSpecs: specs });
+      } else if (id && r.rf_prediction_id) {
+        rfPredictionAdSets.push({
+          id,
+          predictionId: String(r.rf_prediction_id),
+        });
+      }
+    }
+
+    url = body.paging?.next ?? null;
+  }
+
+  // Fetch R&F prediction frequency caps in parallel
+  if (rfPredictionAdSets.length > 0) {
+    const results = await Promise.allSettled(
+      rfPredictionAdSets.map(async ({ id, predictionId }) => {
+        const avgFreq = await fetchRfPredictionAvgFrequency(predictionId, headers);
+        return { id, avgFreq };
+      }),
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled" && result.value.avgFreq != null) {
+        dataByAdSetId.set(result.value.id, {
+          insightsFrequency: result.value.avgFreq,
+        });
+      }
+    }
+  }
+
+  return dataByAdSetId;
+}
+
+/**
+ * Fetch a ReachFrequencyPrediction by ID and calculate the estimated
+ * average frequency (impression / reach) — this matches the "Average
+ * frequency" shown in Meta's Reservation Estimates panel.
+ */
+async function fetchRfPredictionAvgFrequency(
+  predictionId: string,
+  headers: Record<string, string>,
+): Promise<number | undefined> {
+  const url = `${META_API_BASE}/${predictionId}?fields=external_reach,external_impression`;
+  const response = await fetch(url, { headers });
+  if (!response.ok) return undefined;
+
+  const body = (await response.json()) as {
+    external_reach?: number;
+    external_impression?: number;
+  };
+  if (!body.external_reach || !body.external_impression || body.external_reach === 0) return undefined;
+  return body.external_impression / body.external_reach;
+}
+
+/**
  * Fetch the full campaign hierarchy (campaigns → ad sets → ads + creatives)
  * from a Meta ad account using the Graph API v21.0.
  */
@@ -216,6 +329,22 @@ export async function fetchMetaCampaigns(params: {
 
     // Follow cursor-based pagination
     url = body.paging?.next ?? null;
+  }
+
+  // Fetch frequency data separately (dropped from nested expansions)
+  const freqData = await fetchAdSetFrequencyData(adAccountId, headers);
+
+  // Merge frequency data into ad sets
+  for (const campaign of allCampaigns) {
+    for (const adSet of campaign.adSets) {
+      const data = freqData.get(adSet.metaAdSetId);
+      if (data?.frequencyControlSpecs && !adSet.frequencyControlSpecs) {
+        adSet.frequencyControlSpecs = data.frequencyControlSpecs;
+      }
+      if (data?.insightsFrequency != null) {
+        adSet.insightsFrequency = data.insightsFrequency;
+      }
+    }
   }
 
   return allCampaigns;

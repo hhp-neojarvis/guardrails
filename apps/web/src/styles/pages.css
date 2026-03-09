@@ -2186,6 +2186,37 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
+  position: relative;
+}
+
+.rpt-revalidating-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 10;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 120px;
+  border-radius: var(--radius-lg);
+}
+
+.rpt-revalidating-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.rpt-revalidating-content p {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0;
 }
 
 .rpt-topbar {
@@ -2473,6 +2504,54 @@
 .rpt-card-confidence {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
+}
+
+/* Line item results (1:N strategy) */
+
+.rpt-line-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.rpt-line-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  border-left: 3px solid var(--color-border);
+}
+
+.rpt-line-item.rpt-card-fail {
+  border-left-color: var(--color-error);
+}
+
+.rpt-line-item.rpt-card-warning {
+  border-left-color: var(--color-warning);
+}
+
+.rpt-line-item.rpt-card-pass {
+  border-left-color: var(--color-success);
+}
+
+.rpt-line-item-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.rpt-line-item-plan {
+  font-weight: var(--font-semibold);
+  font-size: var(--text-sm);
+}
+
+.rpt-line-item-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }
 
 /* Unmatched Sections */

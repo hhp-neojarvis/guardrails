@@ -9,6 +9,7 @@ import type {
   AdSetMatchCandidate,
   OneToManyMatchSuggestion,
 } from "@guardrails/shared";
+import { callLLM } from "../lib/llm.js";
 
 const SCORE_THRESHOLD = 0.2;
 const NAME_WEIGHT = 0.4;
@@ -310,7 +311,7 @@ export function generateLineItemMatchSuggestions(
 /**
  * Generate 1:N match suggestions: match each group to campaign candidates.
  * Line item suggestions are NOT pre-computed — fetch them on-demand via
- * generateLineItemMatchSuggestions when the user selects a campaign.
+ * generateLineItemMatchSuggestionsAI when the user selects a campaign.
  */
 export function generateOneToManyMatchSuggestions(
   campaignGroups: CampaignGroup[],
@@ -322,4 +323,76 @@ export function generateOneToManyMatchSuggestions(
     metaCampaignCandidates: scoreCampaignGroupCandidates(group, metaCampaigns),
     lineItemSuggestions: [],
   }));
+}
+
+// ─── AI-Powered Line Item → Ad Set Matching ──────────────────────────────
+
+interface AIMatchResult {
+  matches: Array<{ lineItemIndex: number; adSetIndex: number | null }>;
+}
+
+/**
+ * Use AI to match line items to ad sets based on name similarity.
+ * Falls back to the algorithmic matcher if the LLM call fails.
+ */
+export async function generateLineItemMatchSuggestionsAI(
+  group: CampaignGroup,
+  metaCampaign: MetaCampaignSnapshot,
+  companyId?: string,
+): Promise<LineItemMatchSuggestion[]> {
+  const lineItemNames = group.lineItems.map((li) => li.campaignName);
+  const adSetNames = metaCampaign.adSets.map((as) => as.name);
+
+  // If either list is empty, skip AI
+  if (lineItemNames.length === 0 || adSetNames.length === 0) {
+    return generateLineItemMatchSuggestions(group, metaCampaign);
+  }
+
+  try {
+    const userMessage = `PLAN LINE ITEMS:\n${lineItemNames.map((n, i) => `${i}. ${n}`).join("\n")}\n\nMETA AD SETS:\n${adSetNames.map((n, i) => `${i}. ${n}`).join("\n")}`;
+
+    const result = (await callLLM("adset_matching", companyId, userMessage)) as AIMatchResult;
+
+    if (!result.matches || !Array.isArray(result.matches)) {
+      throw new Error("Invalid AI response: missing matches array");
+    }
+
+    // Convert AI response to LineItemMatchSuggestion format
+    return group.lineItems.map((lineItem, lineItemIndex) => {
+      const aiMatch = result.matches.find((m) => m.lineItemIndex === lineItemIndex);
+      const candidates: AdSetMatchCandidate[] = [];
+
+      if (aiMatch && aiMatch.adSetIndex !== null && aiMatch.adSetIndex < metaCampaign.adSets.length) {
+        const adSet = metaCampaign.adSets[aiMatch.adSetIndex];
+        candidates.push({
+          metaAdSetId: adSet.metaAdSetId,
+          metaAdSetName: adSet.name,
+          parentMetaCampaignId: metaCampaign.metaCampaignId,
+          score: 0.9, // AI-matched: high confidence
+          signals: { nameScore: 0.9, geoScore: 0, dateScore: 0 },
+        });
+      }
+
+      // Add remaining ad sets as lower-ranked candidates
+      for (const adSet of metaCampaign.adSets) {
+        if (candidates.some((c) => c.metaAdSetId === adSet.metaAdSetId)) continue;
+        candidates.push({
+          metaAdSetId: adSet.metaAdSetId,
+          metaAdSetName: adSet.name,
+          parentMetaCampaignId: metaCampaign.metaCampaignId,
+          score: 0,
+          signals: { nameScore: 0, geoScore: 0, dateScore: 0 },
+        });
+      }
+
+      return {
+        lineItemIndex,
+        lineItemName: lineItem.campaignName,
+        candidates,
+      };
+    });
+  } catch {
+    // Fallback to algorithmic matching
+    return generateLineItemMatchSuggestions(group, metaCampaign);
+  }
 }

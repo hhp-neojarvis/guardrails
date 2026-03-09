@@ -16,7 +16,7 @@ import {
 } from "@guardrails/db";
 import { decrypt } from "../lib/crypto.js";
 import { fetchMetaCampaigns } from "../services/meta-campaign-fetcher.js";
-import { generateMatchSuggestions, generateOneToManyMatchSuggestions, generateLineItemMatchSuggestions } from "../services/campaign-matcher.js";
+import { generateMatchSuggestions, generateOneToManyMatchSuggestions, generateLineItemMatchSuggestionsAI } from "../services/campaign-matcher.js";
 import { validateCampaignFields, validateCampaignFieldsOneToMany } from "../services/plan-vs-live-validator.js";
 import type {
   ConfirmMatchesRequest,
@@ -190,7 +190,8 @@ validation.get("/uploads/:id/match-suggestions", authMiddleware, async (c) => {
   }
 
   // Load campaign groups for this upload (with companyId filter for security)
-  const groups = await db
+  // Exclude unsupported channels (e.g. YouTube) — only Meta channels are matchable
+  const allGroups = await db
     .select()
     .from(campaignGroups)
     .where(
@@ -199,6 +200,7 @@ validation.get("/uploads/:id/match-suggestions", authMiddleware, async (c) => {
         eq(campaignGroups.companyId, auth.companyId),
       ),
     );
+  const groups = allGroups.filter((g) => g.status !== "unsupported");
 
   // Load meta campaign snapshots for this upload
   const snapshots = await db
@@ -281,9 +283,10 @@ validation.get("/uploads/:id/match-suggestions/line-items", authMiddleware, asyn
   }
 
   const metaCampaign = snapshot.data as MetaCampaignSnapshot;
-  const lineItemSuggestions = generateLineItemMatchSuggestions(
+  const lineItemSuggestions = await generateLineItemMatchSuggestionsAI(
     group as unknown as CampaignGroup,
     metaCampaign,
+    auth.companyId,
   );
 
   return c.json({ lineItemSuggestions });
@@ -405,7 +408,7 @@ validation.get("/uploads/:id/matches", authMiddleware, async (c) => {
 // Step 8: Validate Route
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// POST /uploads/:id/validate — run plan-vs-live validation
+// POST /uploads/:id/validate — re-fetch live Meta campaigns and run plan-vs-live validation
 validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
   const auth = c.get("auth");
   const uploadId = c.req.param("id");
@@ -423,6 +426,49 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
 
   if (matches.length === 0) {
     return c.json({ error: "No confirmed matches found. Confirm matches first." }, 400);
+  }
+
+  // Re-fetch live campaigns from Meta to get fresh data
+  const [adAccount] = await db
+    .select()
+    .from(metaAdAccounts)
+    .where(
+      and(
+        eq(metaAdAccounts.id, upload.metaAdAccountId),
+        eq(metaAdAccounts.companyId, auth.companyId),
+      ),
+    );
+
+  if (adAccount) {
+    try {
+      const accessToken = decrypt(adAccount.encryptedAccessToken, adAccount.tokenIv);
+      const freshCampaigns = await fetchMetaCampaigns({
+        adAccountId: adAccount.metaAccountId,
+        accessToken,
+      });
+
+      // Update snapshots with fresh data
+      for (const campaign of freshCampaigns) {
+        await db
+          .insert(metaCampaignSnapshots)
+          .values({
+            uploadId,
+            companyId: auth.companyId,
+            metaCampaignId: campaign.metaCampaignId,
+            data: campaign,
+            fetchedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [metaCampaignSnapshots.uploadId, metaCampaignSnapshots.metaCampaignId],
+            set: {
+              data: campaign,
+              fetchedAt: new Date(),
+            },
+          });
+      }
+    } catch {
+      // If re-fetch fails, continue with existing snapshots
+    }
   }
 
   // Load all campaign groups and snapshots for this upload (with companyId filter for security)

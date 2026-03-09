@@ -6,6 +6,7 @@ import type {
   ValidationReport,
   CampaignValidationResult,
   FieldComparison,
+  LineItemValidationResult,
   ValidationFlag,
 } from "@guardrails/shared";
 
@@ -268,9 +269,19 @@ export function ValidationReportPage() {
           onClick={handleRevalidate}
           disabled={revalidating}
         >
-          {revalidating ? "Validating..." : "Re-validate"}
+          {revalidating ? "Re-validating..." : "Re-validate"}
         </button>
       </div>
+
+      {/* Re-validation overlay */}
+      {revalidating && (
+        <div className="rpt-revalidating-overlay">
+          <div className="rpt-revalidating-content">
+            <div className="job-processing-spinner" />
+            <p>Fetching latest campaigns from Meta and re-validating...</p>
+          </div>
+        </div>
+      )}
 
       {/* Error banner */}
       {error && (
@@ -325,9 +336,12 @@ export function ValidationReportPage() {
           const campaignFlags = flags.filter(
             (f) => f.campaignGroupId === result.campaignGroupId && f.metaCampaignId === result.metaCampaignId,
           );
+          const lineItemResults = result.lineItemResults ?? [];
+          const lineItemFailed = lineItemResults.some((lr) => lr.fieldComparisons.some((c) => c.status === "fail"));
+          const lineItemWarned = lineItemResults.some((lr) => lr.fieldComparisons.some((c) => c.status === "warning"));
 
           // Derive status from actual field results (don't trust stored overallStatus)
-          const derivedStatus = failed.length > 0 ? "fail" : warned.length > 0 ? "warning" : "pass";
+          const derivedStatus = (failed.length > 0 || lineItemFailed) ? "fail" : (warned.length > 0 || lineItemWarned) ? "warning" : "pass";
 
           return (
             <div
@@ -408,6 +422,85 @@ export function ValidationReportPage() {
                       })}
                     </tbody>
                   </table>
+
+                  {/* Line item results (1:N strategy) */}
+                  {lineItemResults.length > 0 && (
+                    <div className="rpt-line-items">
+                      {lineItemResults.map((lr) => {
+                        const liFailed = lr.fieldComparisons.filter((c) => c.status === "fail");
+                        const liWarned = lr.fieldComparisons.filter((c) => c.status === "warning");
+                        const liStatus = liFailed.length > 0 ? "fail" : liWarned.length > 0 ? "warning" : "pass";
+
+                        return (
+                          <div key={lr.lineItemIndex} className={`rpt-line-item rpt-card-${liStatus}`}>
+                            <div className="rpt-line-item-header">
+                              <span className={`rpt-card-dot rpt-card-dot-${liStatus}`} />
+                              <span className="rpt-line-item-plan">{lr.lineItemName}</span>
+                              <span className="rpt-card-arrow">&rarr;</span>
+                              <span className="rpt-line-item-meta">{lr.metaAdSetName}</span>
+                              <span className="rpt-card-summary">
+                                {liFailed.length > 0 && (
+                                  <span className="rpt-card-count rpt-card-count-fail">{liFailed.length} failed</span>
+                                )}
+                                {liWarned.length > 0 && (
+                                  <span className="rpt-card-count rpt-card-count-warn">{liWarned.length} warning{liWarned.length !== 1 ? "s" : ""}</span>
+                                )}
+                                {liFailed.length === 0 && liWarned.length === 0 && (
+                                  <span className="rpt-card-count rpt-card-count-pass">All checks passed</span>
+                                )}
+                              </span>
+                            </div>
+                            <table className="rpt-compare-table">
+                              <thead>
+                                <tr>
+                                  <th className="rpt-compare-th-field">Field</th>
+                                  <th className="rpt-compare-th-plan">Plan</th>
+                                  <th className="rpt-compare-th-meta">Meta</th>
+                                  <th className="rpt-compare-th-status">Status</th>
+                                  <th className="rpt-compare-th-flag"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lr.fieldComparisons.map((fc) => {
+                                  const existingFlag = campaignFlags.find((f) => f.field === `${lr.lineItemIndex}:${fc.field}` && !f.resolved);
+                                  const isFormOpen =
+                                    flagForm?.campaignGroupId === result.campaignGroupId &&
+                                    flagForm?.metaCampaignId === result.metaCampaignId &&
+                                    flagForm?.field === `${lr.lineItemIndex}:${fc.field}`;
+
+                                  return (
+                                    <ComparisonRow
+                                      key={fc.field}
+                                      fc={fc}
+                                      result={result}
+                                      existingFlag={existingFlag ?? null}
+                                      isFormOpen={isFormOpen}
+                                      flagSeverity={flagSeverity}
+                                      flagNote={flagNote}
+                                      flagSubmitting={flagSubmitting}
+                                      currentUserId={user?.id ?? null}
+                                      onOpenFlagForm={(_form) =>
+                                        setFlagForm({
+                                          campaignGroupId: result.campaignGroupId,
+                                          metaCampaignId: result.metaCampaignId,
+                                          field: `${lr.lineItemIndex}:${fc.field}`,
+                                        })
+                                      }
+                                      onCloseFlagForm={() => setFlagForm(null)}
+                                      onSetFlagSeverity={setFlagSeverity}
+                                      onSetFlagNote={setFlagNote}
+                                      onSubmitFlag={handleCreateFlag}
+                                      onDeleteFlag={handleDeleteFlag}
+                                    />
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Match confidence */}
                   <div className="rpt-card-footer">
