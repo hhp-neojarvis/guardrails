@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { API_URL } from "../lib/api";
+import { useAuth } from "../hooks/useAuth";
 import type {
   ValidationReport,
   CampaignValidationResult,
   FieldComparison,
   GuardrailCheckResult,
+  ValidationFlag,
 } from "@guardrails/shared";
 
 function statusIcon(status: string): string {
@@ -57,6 +59,23 @@ function getGuardrailsStatus(
   return "pass";
 }
 
+function relativeTime(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
+function severityLabel(s: "critical" | "warning" | "info"): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 const SUMMARY_FIELDS = [
   { key: "budget", label: "Budget" },
   { key: "date", label: "Dates" },
@@ -70,6 +89,7 @@ const SUMMARY_FIELDS = [
 export function ValidationReportPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(
     new Set(),
@@ -77,6 +97,23 @@ export function ValidationReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revalidating, setRevalidating] = useState(false);
+
+  // Flag state
+  const [flags, setFlags] = useState<ValidationFlag[]>([]);
+  const [flagForm, setFlagForm] = useState<{
+    campaignGroupId: string;
+    metaCampaignId: string;
+    field: string;
+  } | null>(null);
+  const [flagSeverity, setFlagSeverity] = useState<"critical" | "warning" | "info">("warning");
+  const [flagNote, setFlagNote] = useState("");
+  const [flagSubmitting, setFlagSubmitting] = useState(false);
+
+  // Flagged-for-review panel
+  const [flagPanelOpen, setFlagPanelOpen] = useState(true);
+  const [resolvedPanelOpen, setResolvedPanelOpen] = useState(false);
+  const [resolvingFlagId, setResolvingFlagId] = useState<string | null>(null);
+  const [resolutionNote, setResolutionNote] = useState("");
 
   const fetchReport = useCallback(async () => {
     if (!id) return;
@@ -101,9 +138,25 @@ export function ValidationReportPage() {
     }
   }, [id]);
 
+  const fetchFlags = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await fetch(`${API_URL}/api/uploads/${id}/flags`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFlags(data.flags ?? []);
+      }
+    } catch {
+      // silently fail — flags are secondary
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchReport();
-  }, [fetchReport]);
+    fetchFlags();
+  }, [fetchReport, fetchFlags]);
 
   const handleRevalidate = async () => {
     if (!id) return;
@@ -137,6 +190,73 @@ export function ValidationReportPage() {
       return next;
     });
   };
+
+  const handleCreateFlag = async () => {
+    if (!id || !flagForm || !flagNote.trim()) return;
+    setFlagSubmitting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/uploads/${id}/flags`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignGroupId: flagForm.campaignGroupId,
+          metaCampaignId: flagForm.metaCampaignId,
+          field: flagForm.field,
+          severity: flagSeverity,
+          note: flagNote.trim(),
+        }),
+      });
+      if (res.ok) {
+        setFlagForm(null);
+        setFlagNote("");
+        setFlagSeverity("warning");
+        await fetchFlags();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setFlagSubmitting(false);
+    }
+  };
+
+  const handleResolveFlag = async (flagId: string) => {
+    if (!id) return;
+    try {
+      const res = await fetch(`${API_URL}/api/uploads/${id}/flags/${flagId}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resolutionNote: resolutionNote.trim() || undefined }),
+      });
+      if (res.ok) {
+        setResolvingFlagId(null);
+        setResolutionNote("");
+        await fetchFlags();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleDeleteFlag = async (flagId: string) => {
+    if (!id) return;
+    if (!window.confirm("Delete this flag? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`${API_URL}/api/uploads/${id}/flags/${flagId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        await fetchFlags();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const unresolvedFlags = flags.filter((f) => !f.resolved);
+  const resolvedFlags = flags.filter((f) => f.resolved);
 
   // Loading state
   if (loading) {
@@ -238,6 +358,125 @@ export function ValidationReportPage() {
         </div>
       )}
 
+      {/* Flagged for Review Panel */}
+      {unresolvedFlags.length > 0 && (
+        <div className="rpt-flag-panel">
+          <button
+            className="rpt-flag-panel-header"
+            onClick={() => setFlagPanelOpen((v) => !v)}
+          >
+            <span className="rpt-flag-panel-title">
+              {unresolvedFlags.length} item{unresolvedFlags.length !== 1 ? "s" : ""} flagged for review
+            </span>
+            <span className="rpt-flag-panel-toggle">
+              {flagPanelOpen ? "\u25B2" : "\u25BC"}
+            </span>
+          </button>
+          {flagPanelOpen && (
+            <div className="rpt-flag-panel-body">
+              {unresolvedFlags.map((flag) => (
+                <div key={flag.id} className="rpt-flag-item">
+                  <div className="rpt-flag-item-top">
+                    <span className={`rpt-flag-severity rpt-flag-severity-${flag.severity}`}>
+                      {severityLabel(flag.severity)}
+                    </span>
+                    <span className="rpt-flag-field">{flag.field}</span>
+                    <span className="rpt-flag-note-text">{flag.note}</span>
+                    <span className="rpt-flag-meta">
+                      {flag.flaggedByEmail} &middot; {relativeTime(flag.flaggedAt)}
+                    </span>
+                    <div className="rpt-flag-actions">
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => {
+                          setResolvingFlagId(resolvingFlagId === flag.id ? null : flag.id);
+                          setResolutionNote("");
+                        }}
+                      >
+                        Resolve
+                      </button>
+                      {(user?.id === flag.flaggedByUserId || !user) && (
+                        <button
+                          className="btn btn-sm rpt-flag-delete-btn"
+                          onClick={() => handleDeleteFlag(flag.id)}
+                          title="Delete flag"
+                        >
+                          &#10005;
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {resolvingFlagId === flag.id && (
+                    <div className="rpt-flag-resolve-form">
+                      <textarea
+                        className="rpt-flag-textarea"
+                        placeholder="Resolution note (optional)"
+                        value={resolutionNote}
+                        onChange={(e) => setResolutionNote(e.target.value)}
+                        rows={2}
+                      />
+                      <div className="rpt-flag-resolve-actions">
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => handleResolveFlag(flag.id)}
+                        >
+                          Confirm Resolve
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => {
+                            setResolvingFlagId(null);
+                            setResolutionNote("");
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Resolved Flags Panel */}
+      {resolvedFlags.length > 0 && (
+        <div className="rpt-flag-panel rpt-flag-panel-resolved">
+          <button
+            className="rpt-flag-panel-header"
+            onClick={() => setResolvedPanelOpen((v) => !v)}
+          >
+            <span className="rpt-flag-panel-title rpt-flag-panel-title-resolved">
+              Resolved ({resolvedFlags.length})
+            </span>
+            <span className="rpt-flag-panel-toggle">
+              {resolvedPanelOpen ? "\u25B2" : "\u25BC"}
+            </span>
+          </button>
+          {resolvedPanelOpen && (
+            <div className="rpt-flag-panel-body">
+              {resolvedFlags.map((flag) => (
+                <div key={flag.id} className="rpt-flag-item rpt-flag-item-resolved">
+                  <div className="rpt-flag-item-top">
+                    <span className={`rpt-flag-severity rpt-flag-severity-${flag.severity}`}>
+                      {severityLabel(flag.severity)}
+                    </span>
+                    <span className="rpt-flag-field">{flag.field}</span>
+                    <span className="rpt-flag-note-text">{flag.note}</span>
+                    <span className="rpt-flag-meta">
+                      Resolved by {flag.resolvedByEmail} &middot; {relativeTime(flag.resolvedAt!)}
+                      {flag.resolutionNote && ` — ${flag.resolutionNote}`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Summary Table */}
       <div className="rpt-section">
         <div className="rpt-table-wrapper">
@@ -275,7 +514,26 @@ export function ValidationReportPage() {
       {report.results
         .filter((r) => expandedCampaigns.has(r.campaignGroupId))
         .map((result) => (
-          <DetailCard key={result.campaignGroupId} result={result} />
+          <DetailCard
+            key={result.campaignGroupId}
+            result={result}
+            flags={flags}
+            flagForm={flagForm}
+            flagSeverity={flagSeverity}
+            flagNote={flagNote}
+            flagSubmitting={flagSubmitting}
+            currentUserId={user?.id ?? null}
+            onOpenFlagForm={(campaignGroupId, metaCampaignId, field) => {
+              setFlagForm({ campaignGroupId, metaCampaignId, field });
+              setFlagNote("");
+              setFlagSeverity("warning");
+            }}
+            onCloseFlagForm={() => setFlagForm(null)}
+            onSetFlagSeverity={setFlagSeverity}
+            onSetFlagNote={setFlagNote}
+            onSubmitFlag={handleCreateFlag}
+            onDeleteFlag={handleDeleteFlag}
+          />
         ))}
 
       {/* Unmatched Plan Campaigns */}
@@ -382,7 +640,49 @@ function SummaryRow({
 }
 
 // ── Detail Card ──
-function DetailCard({ result }: { result: CampaignValidationResult }) {
+function DetailCard({
+  result,
+  flags,
+  flagForm,
+  flagSeverity,
+  flagNote,
+  flagSubmitting,
+  currentUserId,
+  onOpenFlagForm,
+  onCloseFlagForm,
+  onSetFlagSeverity,
+  onSetFlagNote,
+  onSubmitFlag,
+  onDeleteFlag,
+}: {
+  result: CampaignValidationResult;
+  flags: ValidationFlag[];
+  flagForm: { campaignGroupId: string; metaCampaignId: string; field: string } | null;
+  flagSeverity: "critical" | "warning" | "info";
+  flagNote: string;
+  flagSubmitting: boolean;
+  currentUserId: string | null;
+  onOpenFlagForm: (campaignGroupId: string, metaCampaignId: string, field: string) => void;
+  onCloseFlagForm: () => void;
+  onSetFlagSeverity: (s: "critical" | "warning" | "info") => void;
+  onSetFlagNote: (n: string) => void;
+  onSubmitFlag: () => void;
+  onDeleteFlag: (flagId: string) => void;
+}) {
+  const campaignFlags = flags.filter(
+    (f) =>
+      f.campaignGroupId === result.campaignGroupId &&
+      f.metaCampaignId === result.metaCampaignId,
+  );
+
+  const isFormOpenForField = (field: string) =>
+    flagForm?.campaignGroupId === result.campaignGroupId &&
+    flagForm?.metaCampaignId === result.metaCampaignId &&
+    flagForm?.field === field;
+
+  const getExistingFlag = (field: string) =>
+    campaignFlags.find((f) => f.field === field && !f.resolved);
+
   return (
     <div className="rpt-detail-card">
       <div className="rpt-detail-header">
@@ -409,22 +709,38 @@ function DetailCard({ result }: { result: CampaignValidationResult }) {
                   <th>Actual</th>
                   <th>Status</th>
                   <th>Message</th>
+                  <th className="rpt-flag-col">Flag</th>
                 </tr>
               </thead>
               <tbody>
-                {result.fieldComparisons.map((fc, i) => (
-                  <tr key={i} className={statusClass(fc.status)}>
-                    <td className="rpt-field-name">{fc.field}</td>
-                    <td>{fc.expected || "\u2014"}</td>
-                    <td>{fc.actual || "\u2014"}</td>
-                    <td>
-                      <span className={`rpt-status-badge ${statusClass(fc.status)}`}>
-                        {statusIcon(fc.status)} {fc.status}
-                      </span>
-                    </td>
-                    <td className="rpt-message">{fc.message || "\u2014"}</td>
-                  </tr>
-                ))}
+                {result.fieldComparisons.map((fc, i) => {
+                  const existingFlag = getExistingFlag(fc.field);
+                  const formOpen = isFormOpenForField(fc.field);
+                  return (
+                    <FieldComparisonRow
+                      key={i}
+                      fc={fc}
+                      existingFlag={existingFlag ?? null}
+                      formOpen={formOpen}
+                      flagSeverity={flagSeverity}
+                      flagNote={flagNote}
+                      flagSubmitting={flagSubmitting}
+                      currentUserId={currentUserId}
+                      onOpenForm={() =>
+                        onOpenFlagForm(
+                          result.campaignGroupId,
+                          result.metaCampaignId,
+                          fc.field,
+                        )
+                      }
+                      onCloseForm={onCloseFlagForm}
+                      onSetSeverity={onSetFlagSeverity}
+                      onSetNote={onSetFlagNote}
+                      onSubmit={onSubmitFlag}
+                      onDelete={onDeleteFlag}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -462,5 +778,119 @@ function DetailCard({ result }: { result: CampaignValidationResult }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Field Comparison Row with flag support ──
+function FieldComparisonRow({
+  fc,
+  existingFlag,
+  formOpen,
+  flagSeverity,
+  flagNote,
+  flagSubmitting,
+  currentUserId,
+  onOpenForm,
+  onCloseForm,
+  onSetSeverity,
+  onSetNote,
+  onSubmit,
+  onDelete,
+}: {
+  fc: FieldComparison;
+  existingFlag: ValidationFlag | null;
+  formOpen: boolean;
+  flagSeverity: "critical" | "warning" | "info";
+  flagNote: string;
+  flagSubmitting: boolean;
+  currentUserId: string | null;
+  onOpenForm: () => void;
+  onCloseForm: () => void;
+  onSetSeverity: (s: "critical" | "warning" | "info") => void;
+  onSetNote: (n: string) => void;
+  onSubmit: () => void;
+  onDelete: (flagId: string) => void;
+}) {
+  return (
+    <>
+      <tr className={statusClass(fc.status)}>
+        <td className="rpt-field-name">{fc.field}</td>
+        <td>{fc.expected || "\u2014"}</td>
+        <td>{fc.actual || "\u2014"}</td>
+        <td>
+          <span className={`rpt-status-badge ${statusClass(fc.status)}`}>
+            {statusIcon(fc.status)} {fc.status}
+          </span>
+        </td>
+        <td className="rpt-message">{fc.message || "\u2014"}</td>
+        <td className="rpt-flag-col">
+          {existingFlag ? (
+            <span
+              className={`rpt-flag-inline-badge rpt-flag-severity-${existingFlag.severity}`}
+              title={existingFlag.note}
+            >
+              &#9873; {severityLabel(existingFlag.severity)}
+              {(currentUserId === existingFlag.flaggedByUserId || !currentUserId) && (
+                <button
+                  className="rpt-flag-inline-delete"
+                  onClick={() => onDelete(existingFlag.id)}
+                  title="Delete flag"
+                >
+                  &#10005;
+                </button>
+              )}
+            </span>
+          ) : (
+            <button
+              className="rpt-flag-icon-btn"
+              onClick={onOpenForm}
+              title="Flag this field"
+            >
+              &#9873;
+            </button>
+          )}
+        </td>
+      </tr>
+      {formOpen && (
+        <tr className="rpt-flag-form-row">
+          <td colSpan={6}>
+            <div className="rpt-flag-inline-form">
+              <div className="rpt-flag-form-controls">
+                <select
+                  className="rpt-flag-select"
+                  value={flagSeverity}
+                  onChange={(e) =>
+                    onSetSeverity(e.target.value as "critical" | "warning" | "info")
+                  }
+                >
+                  <option value="critical">Critical</option>
+                  <option value="warning">Warning</option>
+                  <option value="info">Info</option>
+                </select>
+                <textarea
+                  className="rpt-flag-textarea"
+                  placeholder="Describe the issue (required)"
+                  value={flagNote}
+                  onChange={(e) => onSetNote(e.target.value)}
+                  rows={2}
+                />
+              </div>
+              <div className="rpt-flag-form-actions">
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={onSubmit}
+                  disabled={flagSubmitting || !flagNote.trim()}
+                >
+                  {flagSubmitting ? "Submitting..." : "Submit Flag"}
+                </button>
+                <button className="btn btn-sm" onClick={onCloseForm}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
