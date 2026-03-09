@@ -47,25 +47,8 @@ export function extractMetaGeoKeys(
 
 // ─── Individual Field Comparators ───────────────────────────────────────────
 
-function compareBudget(
-  plan: CampaignGroup,
-  meta: MetaCampaignSnapshot,
-): FieldComparison {
-  const planBudget = plan.lineItems.reduce((sum, li) => {
-    const b = parseFloat(li.budget);
-    return sum + (isNaN(b) ? 0 : b);
-  }, 0);
-
-  if (planBudget === 0) {
-    return {
-      field: "budget",
-      status: "skipped",
-      expected: "0",
-      actual: "",
-      message: "Plan budget is 0 or missing — skipped",
-    };
-  }
-
+/** Compute total Meta budget across all ad sets */
+function computeMetaBudget(meta: MetaCampaignSnapshot): number {
   let metaBudget = 0;
   for (const adSet of meta.adSets) {
     if (adSet.lifetimeBudget) {
@@ -80,6 +63,39 @@ function compareBudget(
       metaBudget += parseFloat(adSet.dailyBudget) * days;
     }
   }
+  return metaBudget;
+}
+
+function compareBudget(
+  plan: CampaignGroup,
+  meta: MetaCampaignSnapshot,
+): FieldComparison {
+  const planBudget = plan.lineItems.reduce((sum, li) => {
+    const b = parseFloat(li.budget);
+    return sum + (isNaN(b) ? 0 : b);
+  }, 0);
+
+  const metaBudget = computeMetaBudget(meta);
+
+  if (planBudget === 0) {
+    return {
+      field: "budget",
+      status: "skipped",
+      expected: "Not in plan",
+      actual: metaBudget > 0 ? String(metaBudget) : "Not set",
+      message: "No budget in plan to compare",
+    };
+  }
+
+  if (metaBudget === 0 && planBudget > 0) {
+    return {
+      field: "budget",
+      status: "warning",
+      expected: String(planBudget),
+      actual: "Not set",
+      message: "Meta campaign has no budget configured",
+    };
+  }
 
   const diff = Math.abs(planBudget - metaBudget) / planBudget;
   const pass = diff <= 0.05;
@@ -91,7 +107,7 @@ function compareBudget(
     actual: String(metaBudget),
     message: pass
       ? `Budget within tolerance (${(diff * 100).toFixed(1)}% difference)`
-      : `Budget mismatch: plan=${planBudget}, meta=${metaBudget} (${(diff * 100).toFixed(1)}% difference, exceeds 5% tolerance)`,
+      : `Budget mismatch (${(diff * 100).toFixed(1)}% difference, exceeds 5% tolerance)`,
   };
 }
 
@@ -116,9 +132,9 @@ function compareStartDate(
     return {
       field: "start_date",
       status: "skipped",
-      expected: "",
-      actual: metaEarliest,
-      message: "No plan start date — skipped",
+      expected: "Not in plan",
+      actual: metaEarliest || "Not set",
+      message: "No start date in plan to compare",
     };
   }
 
@@ -127,10 +143,10 @@ function compareStartDate(
     field: "start_date",
     status: pass ? "pass" : "fail",
     expected: planEarliest,
-    actual: metaEarliest,
+    actual: metaEarliest || "Not set",
     message: pass
       ? "Start dates match"
-      : `Start date mismatch: plan=${planEarliest}, meta=${metaEarliest}`,
+      : `Start date mismatch`,
   };
 }
 
@@ -156,9 +172,9 @@ function compareEndDate(
     return {
       field: "end_date",
       status: "skipped",
-      expected: "",
-      actual: metaLatest,
-      message: "No plan end date — skipped",
+      expected: "Not in plan",
+      actual: metaLatest || "Not set",
+      message: "No end date in plan to compare",
     };
   }
 
@@ -167,11 +183,23 @@ function compareEndDate(
     field: "end_date",
     status: pass ? "pass" : "fail",
     expected: planLatest,
-    actual: metaLatest,
+    actual: metaLatest || "Not set",
     message: pass
       ? "End dates match"
-      : `End date mismatch: plan=${planLatest}, meta=${metaLatest}`,
+      : `End date mismatch`,
   };
+}
+
+/** Extract readable geo names from a MetaCampaignSnapshot's ad sets */
+function extractMetaGeoNames(meta: MetaCampaignSnapshot): string[] {
+  const names: string[] = [];
+  for (const adSet of meta.adSets) {
+    const geo = adSet.targeting.geoLocations;
+    if (geo.countries) names.push(...geo.countries);
+    if (geo.regions) names.push(...geo.regions.map((r) => r.name));
+    if (geo.cities) names.push(...geo.cities.map((c) => c.name));
+  }
+  return [...new Set(names)];
 }
 
 function compareGeoTargeting(
@@ -180,29 +208,27 @@ function compareGeoTargeting(
 ): FieldComparison {
   const planKeys = new Set(plan.resolvedGeoTargets.map((g) => g.key));
   const metaKeys = extractMetaGeoKeys(meta);
+  const planNames = plan.resolvedGeoTargets.map((g) => g.name);
+  const metaNames = extractMetaGeoNames(meta);
 
   if (planKeys.size === 0) {
     return {
       field: "geo_targeting",
       status: "skipped",
-      expected: "",
-      actual: [...metaKeys].join(", "),
-      message: "No plan geo targets — skipped",
+      expected: "Not in plan",
+      actual: metaNames.length > 0 ? metaNames.join(", ") : "Not set",
+      message: "No geo targets in plan to compare",
     };
   }
 
   const missingFromMeta: string[] = [];
   for (const k of planKeys) {
-    if (!metaKeys.has(k)) {
-      missingFromMeta.push(k);
-    }
+    if (!metaKeys.has(k)) missingFromMeta.push(k);
   }
 
   const extraInMeta: string[] = [];
   for (const k of metaKeys) {
-    if (!planKeys.has(k)) {
-      extraInMeta.push(k);
-    }
+    if (!planKeys.has(k)) extraInMeta.push(k);
   }
 
   let status: FieldComparison["status"];
@@ -213,19 +239,36 @@ function compareGeoTargeting(
     message = `Plan geo keys missing from Meta: ${missingFromMeta.join(", ")}`;
   } else if (extraInMeta.length > 0) {
     status = "warning";
-    message = `Meta has extra geo keys not in plan: ${extraInMeta.join(", ")}`;
+    message = `Meta has extra geo keys not in plan`;
   } else {
     status = "pass";
-    message = "All plan geo keys present in Meta";
+    message = "Geo targeting matches";
   }
 
   return {
     field: "geo_targeting",
     status,
-    expected: [...planKeys].sort().join(", "),
-    actual: [...metaKeys].sort().join(", "),
+    expected: planNames.length > 0 ? planNames.join(", ") : [...planKeys].sort().join(", "),
+    actual: metaNames.length > 0 ? metaNames.join(", ") : [...metaKeys].sort().join(", "),
     message,
   };
+}
+
+/** Format gender codes to readable strings */
+function formatGenders(codes: number[]): string {
+  if (codes.length === 0) return "All";
+  return codes.map((c) => (c === 1 ? "Male" : c === 2 ? "Female" : String(c))).join(", ");
+}
+
+/** Collect all unique placements from Meta ad sets */
+function extractMetaPlacements(meta: MetaCampaignSnapshot): string[] {
+  const platforms = new Set<string>();
+  for (const adSet of meta.adSets) {
+    for (const p of adSet.targeting.publisherPlatforms ?? []) {
+      platforms.add(p.toLowerCase());
+    }
+  }
+  return [...platforms].sort();
 }
 
 function compareAgeRange(
@@ -233,27 +276,25 @@ function compareAgeRange(
   meta: MetaCampaignSnapshot,
 ): FieldComparison {
   const planTargeting = plan.lineItemConfigs?.[0]?.targeting;
+  const firstAdSet = meta.adSets[0];
+  const metaAgeMin = firstAdSet?.targeting.ageMin;
+  const metaAgeMax = firstAdSet?.targeting.ageMax;
+  const metaStr =
+    metaAgeMin !== undefined && metaAgeMax !== undefined
+      ? `${metaAgeMin}-${metaAgeMax}`
+      : "Not set";
 
   if (!planTargeting) {
     return {
       field: "age_range",
       status: "skipped",
-      expected: "",
-      actual: "",
-      message: "No plan targeting config — skipped",
+      expected: "Not in plan",
+      actual: metaStr,
+      message: "No age range in plan to compare",
     };
   }
 
-  const firstAdSet = meta.adSets[0];
-  const metaAgeMin = firstAdSet?.targeting.ageMin;
-  const metaAgeMax = firstAdSet?.targeting.ageMax;
-
   const planStr = `${planTargeting.ageMin}-${planTargeting.ageMax}`;
-  const metaStr =
-    metaAgeMin !== undefined && metaAgeMax !== undefined
-      ? `${metaAgeMin}-${metaAgeMax}`
-      : "not set";
-
   const pass =
     planTargeting.ageMin === metaAgeMin &&
     planTargeting.ageMax === metaAgeMax;
@@ -263,9 +304,7 @@ function compareAgeRange(
     status: pass ? "pass" : "fail",
     expected: planStr,
     actual: metaStr,
-    message: pass
-      ? "Age range matches"
-      : `Age range mismatch: plan=${planStr}, meta=${metaStr}`,
+    message: pass ? "Age range matches" : "Age range mismatch",
   };
 }
 
@@ -274,34 +313,31 @@ function compareGenders(
   meta: MetaCampaignSnapshot,
 ): FieldComparison {
   const planTargeting = plan.lineItemConfigs?.[0]?.targeting;
+  const firstAdSet = meta.adSets[0];
+  const metaGenders = firstAdSet?.targeting.genders ?? [];
+  const metaStr = formatGenders(metaGenders);
 
   if (!planTargeting) {
     return {
       field: "genders",
       status: "skipped",
-      expected: "",
-      actual: "",
-      message: "No plan targeting config — skipped",
+      expected: "Not in plan",
+      actual: metaStr,
+      message: "No gender targeting in plan to compare",
     };
   }
 
-  const firstAdSet = meta.adSets[0];
-  const metaGenders = firstAdSet?.targeting.genders ?? [];
-  const planGenders = planTargeting.genders;
-
-  const planSorted = [...planGenders].sort().join(",");
+  const planStr = formatGenders(planTargeting.genders);
+  const planSorted = [...planTargeting.genders].sort().join(",");
   const metaSorted = [...metaGenders].sort().join(",");
-
   const pass = planSorted === metaSorted;
 
   return {
     field: "genders",
     status: pass ? "pass" : "fail",
-    expected: planSorted,
-    actual: metaSorted,
-    message: pass
-      ? "Genders match"
-      : `Genders mismatch: plan=[${planSorted}], meta=[${metaSorted}]`,
+    expected: planStr,
+    actual: metaStr,
+    message: pass ? "Genders match" : "Genders mismatch",
   };
 }
 
@@ -311,20 +347,19 @@ function compareFrequencyCap(
 ): FieldComparison {
   const planFreq = plan.lineItems[0]?.avgFrequency;
   const planVal = planFreq ? parseFloat(planFreq) : NaN;
+  const firstAdSet = meta.adSets[0];
+  const metaVal = firstAdSet?.frequencyControlSpecs?.[0]?.maxFrequency ?? NaN;
+  const metaStr = isNaN(metaVal) ? "Not set" : String(metaVal);
 
   if (isNaN(planVal)) {
     return {
       field: "frequency_cap",
       status: "skipped",
-      expected: "",
-      actual: "",
-      message: "No plan frequency — skipped",
+      expected: "Not in plan",
+      actual: metaStr,
+      message: "No frequency cap in plan to compare",
     };
   }
-
-  const firstAdSet = meta.adSets[0];
-  const metaVal =
-    firstAdSet?.frequencyControlSpecs?.[0]?.maxFrequency ?? NaN;
 
   const pass = !isNaN(metaVal) && Math.abs(planVal - metaVal) < 0.01;
 
@@ -332,10 +367,8 @@ function compareFrequencyCap(
     field: "frequency_cap",
     status: pass ? "pass" : "fail",
     expected: String(planVal),
-    actual: isNaN(metaVal) ? "not set" : String(metaVal),
-    message: pass
-      ? "Frequency cap matches"
-      : `Frequency cap mismatch: plan=${planVal}, meta=${isNaN(metaVal) ? "not set" : metaVal}`,
+    actual: metaStr,
+    message: pass ? "Frequency cap matches" : "Frequency cap mismatch",
   };
 }
 
@@ -344,32 +377,26 @@ function comparePlacements(
   meta: MetaCampaignSnapshot,
 ): FieldComparison {
   const planInventory = plan.lineItemConfigs?.[0]?.inventory;
+  const metaPlatforms = extractMetaPlacements(meta);
+  const metaStr = metaPlatforms.length > 0 ? metaPlatforms.join(", ") : "Not set";
 
   if (!planInventory) {
     return {
       field: "placements",
       status: "skipped",
-      expected: "",
-      actual: "",
-      message: "No plan inventory config — skipped",
+      expected: "Not in plan",
+      actual: metaStr,
+      message: "No placements in plan to compare",
     };
   }
 
   const planPlatforms = new Set(
     planInventory.publisherPlatforms.map((p) => p.toLowerCase()),
   );
-  const firstAdSet = meta.adSets[0];
-  const metaPlatforms = new Set(
-    (firstAdSet?.targeting.publisherPlatforms ?? []).map((p) =>
-      p.toLowerCase(),
-    ),
-  );
 
   const missing: string[] = [];
   for (const p of planPlatforms) {
-    if (!metaPlatforms.has(p)) {
-      missing.push(p);
-    }
+    if (!new Set(metaPlatforms).has(p)) missing.push(p);
   }
 
   const pass = missing.length === 0;
@@ -378,7 +405,7 @@ function comparePlacements(
     field: "placements",
     status: pass ? "pass" : "fail",
     expected: [...planPlatforms].sort().join(", "),
-    actual: [...metaPlatforms].sort().join(", "),
+    actual: metaStr,
     message: pass
       ? "All plan platforms present in Meta"
       : `Plan platforms missing from Meta: ${missing.join(", ")}`,
@@ -395,23 +422,47 @@ function compareObjective(
     return {
       field: "objective",
       status: "skipped",
-      expected: "",
-      actual: meta.objective,
-      message: "No plan buy type — skipped",
+      expected: "Not in plan",
+      actual: meta.objective || "Not set",
+      message: "No objective in plan to compare",
     };
   }
 
-  const pass =
-    planObjective.toLowerCase() === meta.objective.toLowerCase();
+  const pass = planObjective.toLowerCase() === meta.objective.toLowerCase();
 
   return {
     field: "objective",
     status: pass ? "pass" : "fail",
     expected: planObjective,
     actual: meta.objective,
-    message: pass
-      ? "Objective matches"
-      : `Objective mismatch: plan=${planObjective}, meta=${meta.objective}`,
+    message: pass ? "Objective matches" : "Objective mismatch",
+  };
+}
+
+function compareBuyingType(
+  plan: CampaignGroup,
+  meta: MetaCampaignSnapshot,
+): FieldComparison {
+  const planBuyType = plan.campaignBuyType?.buyingType;
+
+  if (!planBuyType) {
+    return {
+      field: "buying_type",
+      status: "skipped",
+      expected: "Not in plan",
+      actual: meta.buyingType || "Not set",
+      message: "No buying type in plan to compare",
+    };
+  }
+
+  const pass = planBuyType.toLowerCase() === meta.buyingType.toLowerCase();
+
+  return {
+    field: "buying_type",
+    status: pass ? "pass" : "fail",
+    expected: planBuyType,
+    actual: meta.buyingType,
+    message: pass ? "Buying type matches" : "Buying type mismatch",
   };
 }
 
@@ -436,6 +487,7 @@ export function validateCampaignFields(
     compareFrequencyCap(planCampaign, metaCampaign),
     comparePlacements(planCampaign, metaCampaign),
     compareObjective(planCampaign, metaCampaign),
+    compareBuyingType(planCampaign, metaCampaign),
   ];
 
   const failCount = fieldComparisons.filter((c) => c.status === "fail").length;
