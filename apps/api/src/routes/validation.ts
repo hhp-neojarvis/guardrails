@@ -16,14 +16,16 @@ import {
 } from "@guardrails/db";
 import { decrypt } from "../lib/crypto.js";
 import { fetchMetaCampaigns } from "../services/meta-campaign-fetcher.js";
-import { generateMatchSuggestions } from "../services/campaign-matcher.js";
-import { validateCampaignFields } from "../services/plan-vs-live-validator.js";
+import { generateMatchSuggestions, generateOneToManyMatchSuggestions } from "../services/campaign-matcher.js";
+import { validateCampaignFields, validateCampaignFieldsOneToMany } from "../services/plan-vs-live-validator.js";
 import type {
   ConfirmMatchesRequest,
+  SetStrategyRequest,
   CreateFlagRequest,
   ResolveFlagRequest,
   MetaCampaignSnapshot,
   CampaignValidationResult,
+  CampaignStrategy,
   ValidationReport,
 } from "@guardrails/shared";
 import type { CampaignGroup } from "@guardrails/shared";
@@ -146,6 +148,34 @@ validation.get("/uploads/:id/meta-campaigns", authMiddleware, async (c) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Strategy Route
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// PUT /uploads/:id/strategy — set the campaign strategy for an upload
+validation.put("/uploads/:id/strategy", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const uploadId = c.req.param("id");
+
+  const upload = await loadUpload(uploadId, auth.companyId);
+  if (!upload) {
+    return c.json({ error: "Upload not found" }, 404);
+  }
+
+  const body = (await c.req.json()) as SetStrategyRequest;
+
+  if (!body.strategy || !["one_per_line_item", "one_campaign"].includes(body.strategy)) {
+    return c.json({ error: "strategy must be 'one_per_line_item' or 'one_campaign'" }, 400);
+  }
+
+  await db
+    .update(excelUploads)
+    .set({ strategy: body.strategy, updatedAt: new Date() })
+    .where(eq(excelUploads.id, uploadId));
+
+  return c.json({ strategy: body.strategy });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Step 6: Match Routes
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -178,10 +208,20 @@ validation.get("/uploads/:id/match-suggestions", authMiddleware, async (c) => {
 
   const metaCampaigns = snapshots.map((s) => s.data as MetaCampaignSnapshot);
 
+  const strategy = (upload.strategy as CampaignStrategy | null) ?? "one_per_line_item";
+
   const suggestions = generateMatchSuggestions(
     groups as unknown as CampaignGroup[],
     metaCampaigns,
   );
+
+  if (strategy === "one_campaign") {
+    const oneToManySuggestions = generateOneToManyMatchSuggestions(
+      groups as unknown as CampaignGroup[],
+      metaCampaigns,
+    );
+    return c.json({ suggestions, oneToManySuggestions });
+  }
 
   return c.json({ suggestions });
 });
@@ -252,6 +292,7 @@ validation.post("/uploads/:id/matches", authMiddleware, async (c) => {
         metaCampaignId: match.metaCampaignId,
         confidence: match.confidence,
         confirmedByUserId: auth.userId,
+        lineItemMatches: match.lineItemMatches ?? null,
       })
       .returning();
     inserted.push({
@@ -342,6 +383,9 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
     snapshots.map((s) => [s.metaCampaignId, s.data as MetaCampaignSnapshot]),
   );
 
+  // Determine strategy
+  const strategy: CampaignStrategy = (upload.strategy as CampaignStrategy | null) ?? "one_per_line_item";
+
   // Validate each match
   const results: CampaignValidationResult[] = [];
   const matchedGroupIds = new Set<string>();
@@ -358,11 +402,23 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
     matchedGroupIds.add(match.campaignGroupId);
     matchedMetaIds.add(match.metaCampaignId);
 
-    const result = validateCampaignFields(
-      group as unknown as CampaignGroup,
-      metaCampaign,
-      match.confidence,
-    );
+    let result: CampaignValidationResult;
+
+    if (strategy === "one_campaign") {
+      const lineItemMatches = (match.lineItemMatches as Array<{ lineItemIndex: number; metaAdSetId: string }>) ?? [];
+      result = validateCampaignFieldsOneToMany(
+        group as unknown as CampaignGroup,
+        metaCampaign,
+        match.confidence,
+        lineItemMatches,
+      );
+    } else {
+      result = validateCampaignFields(
+        group as unknown as CampaignGroup,
+        metaCampaign,
+        match.confidence,
+      );
+    }
 
     results.push(result);
   }
@@ -388,6 +444,7 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
   const report: ValidationReport = {
     id: "",
     uploadId,
+    strategy,
     results,
     unmatchedPlanCampaigns,
     unmatchedMetaCampaigns,

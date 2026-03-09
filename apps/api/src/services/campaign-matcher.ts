@@ -1,9 +1,13 @@
 import type { CampaignGroup } from "@guardrails/shared";
 import type {
   MetaCampaignSnapshot,
+  MetaAdSetSnapshot,
   MatchSuggestion,
   MatchCandidate,
   MatchSignals,
+  LineItemMatchSuggestion,
+  AdSetMatchCandidate,
+  OneToManyMatchSuggestion,
 } from "@guardrails/shared";
 
 const SCORE_THRESHOLD = 0.2;
@@ -178,6 +182,171 @@ export function generateMatchSuggestions(
       campaignGroupId: group.id ?? "",
       campaignGroupName: group.campaignName,
       candidates,
+    };
+  });
+}
+
+// ─── 1:N (One Campaign) Strategy ──────────────────────────────────────────
+
+const LINE_ITEM_SCORE_THRESHOLD = 0.15;
+const LINE_ITEM_NAME_WEIGHT = 0.5;
+const LINE_ITEM_DATE_WEIGHT = 0.3;
+const LINE_ITEM_BUDGET_WEIGHT = 0.2;
+
+/**
+ * Compute name similarity between a line item campaign name and an ad set name.
+ */
+function computeLineItemNameScore(lineItemName: string, adSetName: string): number {
+  const planTokens = new Set(tokenize(lineItemName));
+  const metaTokens = new Set(tokenize(adSetName));
+  if (planTokens.size === 0 && metaTokens.size === 0) return 0;
+  return jaccardSimilarity(planTokens, metaTokens);
+}
+
+/**
+ * Compute date overlap between a line item's date range and an ad set's date range.
+ */
+function computeLineItemDateScore(
+  lineItemStartDate: string | undefined,
+  lineItemEndDate: string | undefined,
+  adSet: MetaAdSetSnapshot,
+): number {
+  if (!lineItemStartDate || !lineItemEndDate) return 0;
+  if (!adSet.startTime || !adSet.endTime) return 0;
+
+  const planStart = new Date(lineItemStartDate);
+  const planEnd = new Date(lineItemEndDate);
+  const metaStart = new Date(adSet.startTime);
+  const metaEnd = new Date(adSet.endTime);
+
+  return computeDateOverlap(planStart, planEnd, metaStart, metaEnd);
+}
+
+/**
+ * Compute budget proximity between a line item budget and an ad set budget.
+ * Returns 1.0 for exact match, decreasing linearly. Returns 0 if either is missing.
+ */
+function computeLineItemBudgetScore(
+  lineItemBudget: string | undefined,
+  adSet: MetaAdSetSnapshot,
+): number {
+  const planBudget = lineItemBudget ? parseFloat(lineItemBudget) : NaN;
+  if (isNaN(planBudget) || planBudget === 0) return 0;
+
+  let metaBudget = 0;
+  if (adSet.lifetimeBudget) {
+    metaBudget = parseFloat(adSet.lifetimeBudget);
+  } else if (adSet.dailyBudget && adSet.startTime && adSet.endTime) {
+    const start = new Date(adSet.startTime).getTime();
+    const end = new Date(adSet.endTime).getTime();
+    const days = Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
+    metaBudget = parseFloat(adSet.dailyBudget) * days;
+  }
+
+  if (metaBudget === 0) return 0;
+
+  const diff = Math.abs(planBudget - metaBudget) / Math.max(planBudget, metaBudget);
+  return Math.max(0, 1 - diff);
+}
+
+/**
+ * Generate line item → ad set match suggestions within a single campaign.
+ * Each line item in the group is matched against ad sets in the given Meta campaign.
+ */
+export function generateLineItemMatchSuggestions(
+  group: CampaignGroup,
+  metaCampaign: MetaCampaignSnapshot,
+): LineItemMatchSuggestion[] {
+  return group.lineItems.map((lineItem, lineItemIndex) => {
+    const candidates: AdSetMatchCandidate[] = [];
+
+    for (const adSet of metaCampaign.adSets) {
+      const nameScore = computeLineItemNameScore(lineItem.campaignName, adSet.name);
+      const dateScore = computeLineItemDateScore(lineItem.startDate, lineItem.endDate, adSet);
+      const budgetScore = computeLineItemBudgetScore(lineItem.budget, adSet);
+
+      const score =
+        nameScore * LINE_ITEM_NAME_WEIGHT +
+        dateScore * LINE_ITEM_DATE_WEIGHT +
+        budgetScore * LINE_ITEM_BUDGET_WEIGHT;
+
+      if (score >= LINE_ITEM_SCORE_THRESHOLD) {
+        const signals: MatchSignals = {
+          nameScore,
+          geoScore: 0, // not used for line item matching — geo is at campaign level
+          dateScore,
+        };
+        candidates.push({
+          metaAdSetId: adSet.metaAdSetId,
+          metaAdSetName: adSet.name,
+          parentMetaCampaignId: metaCampaign.metaCampaignId,
+          score: Math.round(score * 1000) / 1000,
+          signals,
+        });
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+
+    return {
+      lineItemIndex,
+      lineItemName: lineItem.campaignName,
+      candidates,
+    };
+  });
+}
+
+/**
+ * Generate 1:N match suggestions: first match each group to a campaign,
+ * then for the top campaign, generate line item → ad set suggestions.
+ */
+export function generateOneToManyMatchSuggestions(
+  campaignGroups: CampaignGroup[],
+  metaCampaigns: MetaCampaignSnapshot[],
+): OneToManyMatchSuggestion[] {
+  return campaignGroups.map((group) => {
+    // Reuse the existing campaign-level scoring to find campaign candidates
+    const campaignCandidates: MatchCandidate[] = [];
+
+    for (const meta of metaCampaigns) {
+      const nameScore = computeNameScore(group.campaignName, meta.name);
+      const geoScore = computeGeoScore(group, meta);
+      const dateScore = computeDateScore(group, meta);
+
+      const score =
+        nameScore * NAME_WEIGHT +
+        geoScore * GEO_WEIGHT +
+        dateScore * DATE_WEIGHT;
+
+      if (score >= SCORE_THRESHOLD) {
+        const signals: MatchSignals = { nameScore, geoScore, dateScore };
+        campaignCandidates.push({
+          metaCampaignId: meta.metaCampaignId,
+          metaCampaignName: meta.name,
+          score: Math.round(score * 1000) / 1000,
+          signals,
+        });
+      }
+    }
+
+    campaignCandidates.sort((a, b) => b.score - a.score);
+
+    // For the top campaign candidate, generate line item → ad set suggestions
+    let lineItemSuggestions: LineItemMatchSuggestion[] = [];
+    if (campaignCandidates.length > 0) {
+      const topMetaCampaign = metaCampaigns.find(
+        (m) => m.metaCampaignId === campaignCandidates[0].metaCampaignId,
+      );
+      if (topMetaCampaign) {
+        lineItemSuggestions = generateLineItemMatchSuggestions(group, topMetaCampaign);
+      }
+    }
+
+    return {
+      campaignGroupId: group.id ?? "",
+      campaignGroupName: group.campaignName,
+      metaCampaignCandidates: campaignCandidates,
+      lineItemSuggestions,
     };
   });
 }
