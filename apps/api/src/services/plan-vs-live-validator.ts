@@ -494,6 +494,16 @@ function compareLineItemBudget(
     metaBudget = parseFloat(adSet.dailyBudget) * days;
   }
 
+  if (metaBudget === 0 && planBudget > 0) {
+    return {
+      field: "budget",
+      status: "warning",
+      expected: String(planBudget),
+      actual: "0",
+      message: "Ad set has no budget configured",
+    };
+  }
+
   const diff = Math.abs(planBudget - metaBudget) / planBudget;
   const pass = diff <= 0.05;
 

@@ -11,6 +11,7 @@ import type {
   CampaignStrategy,
   OneToManyMatchSuggestion,
   AdSetMatchCandidate,
+  LineItemMatchSuggestion,
 } from "@guardrails/shared";
 
 type Phase = 1 | 2 | 3 | 4;
@@ -105,25 +106,19 @@ export function ValidationPage() {
           setOneToManySuggestions(sugData.oneToManySuggestions);
 
           // Pre-select top campaign candidates with score >= 0.6
+          // Line-item suggestions are fetched on-demand when the user accepts a campaign
           const initial = new Map<string, string>();
-          const initialLineItems = new Map<string, Map<number, string>>();
           for (const s of sugData.oneToManySuggestions) {
             if (s.metaCampaignCandidates.length > 0 && s.metaCampaignCandidates[0].score >= 0.6) {
               initial.set(s.campaignGroupId, s.metaCampaignCandidates[0].metaCampaignId);
             }
-            // Pre-select top ad set candidates with score >= 0.6
-            const lineItemMap = new Map<number, string>();
-            for (const li of s.lineItemSuggestions) {
-              if (li.candidates.length > 0 && li.candidates[0].score >= 0.6) {
-                lineItemMap.set(li.lineItemIndex, li.candidates[0].metaAdSetId);
-              }
-            }
-            if (lineItemMap.size > 0) {
-              initialLineItems.set(s.campaignGroupId, lineItemMap);
-            }
           }
           setSelections(initial);
-          setLineItemSelections(initialLineItems);
+
+          // Fetch line-item suggestions for each pre-selected campaign
+          for (const [groupId, metaCampaignId] of initial.entries()) {
+            fetchLineItemSuggestions(groupId, metaCampaignId);
+          }
         } else {
           // 1:1 strategy - pre-select top candidates
           const initial = new Map<string, string>();
@@ -252,6 +247,45 @@ export function ValidationPage() {
   };
 
   // ── Helpers ──
+
+  // Fetch line-item suggestions on-demand when a campaign is selected in 1:N mode
+  const fetchLineItemSuggestions = async (groupId: string, metaCampaignId: string) => {
+    try {
+      const res = await fetch(
+        `${API_URL}/api/uploads/${id}/match-suggestions/line-items?campaignGroupId=${groupId}&metaCampaignId=${metaCampaignId}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const data: { lineItemSuggestions: LineItemMatchSuggestion[] } = await res.json();
+
+      // Update the oneToManySuggestions with the fresh line-item suggestions
+      setOneToManySuggestions((prev) =>
+        prev.map((s) =>
+          s.campaignGroupId === groupId
+            ? { ...s, lineItemSuggestions: data.lineItemSuggestions }
+            : s,
+        ),
+      );
+
+      // Pre-select top ad set candidates with score >= 0.6
+      const lineItemMap = new Map<number, string>();
+      for (const li of data.lineItemSuggestions) {
+        if (li.candidates.length > 0 && li.candidates[0].score >= 0.6) {
+          lineItemMap.set(li.lineItemIndex, li.candidates[0].metaAdSetId);
+        }
+      }
+      if (lineItemMap.size > 0) {
+        setLineItemSelections((prev) => {
+          const next = new Map(prev);
+          next.set(groupId, lineItemMap);
+          return next;
+        });
+      }
+    } catch {
+      // Silently fail — the user can still manually select ad sets
+    }
+  };
+
   const handleSelectMeta = (groupId: string, metaCampaignId: string) => {
     setSelections((prev) => new Map(prev).set(groupId, metaCampaignId));
     setSkipped((prev) => {
@@ -260,6 +294,11 @@ export function ValidationPage() {
       return next;
     });
     setChangingGroup(null);
+
+    // In 1:N mode, fetch line-item suggestions for the selected campaign
+    if (strategy === "one_campaign") {
+      fetchLineItemSuggestions(groupId, metaCampaignId);
+    }
   };
 
   const handleSkip = (groupId: string) => {

@@ -248,6 +248,10 @@ export interface MatchSuggestionsResponse {
   oneToManySuggestions?: OneToManyMatchSuggestion[];
 }
 
+export interface LineItemMatchSuggestionsResponse {
+  lineItemSuggestions: LineItemMatchSuggestion[];
+}
+
 export interface ConfirmMatchesResponse {
   matches: CampaignMatch[];
 }

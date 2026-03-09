@@ -16,7 +16,7 @@ import {
 } from "@guardrails/db";
 import { decrypt } from "../lib/crypto.js";
 import { fetchMetaCampaigns } from "../services/meta-campaign-fetcher.js";
-import { generateMatchSuggestions, generateOneToManyMatchSuggestions } from "../services/campaign-matcher.js";
+import { generateMatchSuggestions, generateOneToManyMatchSuggestions, generateLineItemMatchSuggestions } from "../services/campaign-matcher.js";
 import { validateCampaignFields, validateCampaignFieldsOneToMany } from "../services/plan-vs-live-validator.js";
 import type {
   ConfirmMatchesRequest,
@@ -189,11 +189,16 @@ validation.get("/uploads/:id/match-suggestions", authMiddleware, async (c) => {
     return c.json({ error: "Upload not found" }, 404);
   }
 
-  // Load campaign groups for this upload
+  // Load campaign groups for this upload (with companyId filter for security)
   const groups = await db
     .select()
     .from(campaignGroups)
-    .where(eq(campaignGroups.uploadId, uploadId));
+    .where(
+      and(
+        eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
+      ),
+    );
 
   // Load meta campaign snapshots for this upload
   const snapshots = await db
@@ -226,6 +231,64 @@ validation.get("/uploads/:id/match-suggestions", authMiddleware, async (c) => {
   return c.json({ suggestions });
 });
 
+// GET /uploads/:id/match-suggestions/line-items — fetch line-item match suggestions on-demand
+validation.get("/uploads/:id/match-suggestions/line-items", authMiddleware, async (c) => {
+  const auth = c.get("auth");
+  const uploadId = c.req.param("id");
+
+  const upload = await loadUpload(uploadId, auth.companyId);
+  if (!upload) {
+    return c.json({ error: "Upload not found" }, 404);
+  }
+
+  const campaignGroupId = c.req.query("campaignGroupId");
+  const metaCampaignId = c.req.query("metaCampaignId");
+
+  if (!campaignGroupId || !metaCampaignId) {
+    return c.json({ error: "campaignGroupId and metaCampaignId query params are required" }, 400);
+  }
+
+  // Load the campaign group (with companyId filter for security)
+  const [group] = await db
+    .select()
+    .from(campaignGroups)
+    .where(
+      and(
+        eq(campaignGroups.id, campaignGroupId),
+        eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
+      ),
+    );
+
+  if (!group) {
+    return c.json({ error: "Campaign group not found" }, 404);
+  }
+
+  // Load the meta campaign snapshot
+  const [snapshot] = await db
+    .select()
+    .from(metaCampaignSnapshots)
+    .where(
+      and(
+        eq(metaCampaignSnapshots.metaCampaignId, metaCampaignId),
+        eq(metaCampaignSnapshots.uploadId, uploadId),
+        eq(metaCampaignSnapshots.companyId, auth.companyId),
+      ),
+    );
+
+  if (!snapshot) {
+    return c.json({ error: "Meta campaign snapshot not found" }, 404);
+  }
+
+  const metaCampaign = snapshot.data as MetaCampaignSnapshot;
+  const lineItemSuggestions = generateLineItemMatchSuggestions(
+    group as unknown as CampaignGroup,
+    metaCampaign,
+  );
+
+  return c.json({ lineItemSuggestions });
+});
+
 // POST /uploads/:id/matches — confirm matches
 validation.post("/uploads/:id/matches", authMiddleware, async (c) => {
   const auth = c.get("auth");
@@ -242,7 +305,7 @@ validation.post("/uploads/:id/matches", authMiddleware, async (c) => {
     return c.json({ error: "matches array is required and must not be empty" }, 400);
   }
 
-  // Validate all campaignGroupIds belong to this upload
+  // Validate all campaignGroupIds belong to this upload (with companyId filter for security)
   const groupIds = body.matches.map((m) => m.campaignGroupId);
   const groups = await db
     .select()
@@ -250,6 +313,7 @@ validation.post("/uploads/:id/matches", authMiddleware, async (c) => {
     .where(
       and(
         eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
         inArray(campaignGroups.id, groupIds),
       ),
     );
@@ -361,11 +425,16 @@ validation.post("/uploads/:id/validate", authMiddleware, async (c) => {
     return c.json({ error: "No confirmed matches found. Confirm matches first." }, 400);
   }
 
-  // Load all campaign groups and snapshots for this upload
+  // Load all campaign groups and snapshots for this upload (with companyId filter for security)
   const groups = await db
     .select()
     .from(campaignGroups)
-    .where(eq(campaignGroups.uploadId, uploadId));
+    .where(
+      and(
+        eq(campaignGroups.uploadId, uploadId),
+        eq(campaignGroups.companyId, auth.companyId),
+      ),
+    );
 
   const snapshots = await db
     .select()

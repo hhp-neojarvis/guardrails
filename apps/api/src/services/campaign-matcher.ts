@@ -145,6 +145,41 @@ function computeDateScore(
 }
 
 /**
+ * Score a single CampaignGroup against all MetaCampaigns and return sorted candidates.
+ * Shared helper used by both generateMatchSuggestions and generateOneToManyMatchSuggestions.
+ */
+function scoreCampaignGroupCandidates(
+  group: CampaignGroup,
+  metaCampaigns: MetaCampaignSnapshot[],
+): MatchCandidate[] {
+  const candidates: MatchCandidate[] = [];
+
+  for (const meta of metaCampaigns) {
+    const nameScore = computeNameScore(group.campaignName, meta.name);
+    const geoScore = computeGeoScore(group, meta);
+    const dateScore = computeDateScore(group, meta);
+
+    const score =
+      nameScore * NAME_WEIGHT +
+      geoScore * GEO_WEIGHT +
+      dateScore * DATE_WEIGHT;
+
+    if (score >= SCORE_THRESHOLD) {
+      const signals: MatchSignals = { nameScore, geoScore, dateScore };
+      candidates.push({
+        metaCampaignId: meta.metaCampaignId,
+        metaCampaignName: meta.name,
+        score: Math.round(score * 1000) / 1000,
+        signals,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates;
+}
+
+/**
  * Generate match suggestions between Excel campaign groups and fetched Meta campaigns.
  * Uses a weighted scoring algorithm with name, geo, and date signals.
  */
@@ -152,38 +187,11 @@ export function generateMatchSuggestions(
   campaignGroups: CampaignGroup[],
   metaCampaigns: MetaCampaignSnapshot[]
 ): MatchSuggestion[] {
-  return campaignGroups.map((group) => {
-    const candidates: MatchCandidate[] = [];
-
-    for (const meta of metaCampaigns) {
-      const nameScore = computeNameScore(group.campaignName, meta.name);
-      const geoScore = computeGeoScore(group, meta);
-      const dateScore = computeDateScore(group, meta);
-
-      const score =
-        nameScore * NAME_WEIGHT +
-        geoScore * GEO_WEIGHT +
-        dateScore * DATE_WEIGHT;
-
-      if (score >= SCORE_THRESHOLD) {
-        const signals: MatchSignals = { nameScore, geoScore, dateScore };
-        candidates.push({
-          metaCampaignId: meta.metaCampaignId,
-          metaCampaignName: meta.name,
-          score: Math.round(score * 1000) / 1000,
-          signals,
-        });
-      }
-    }
-
-    candidates.sort((a, b) => b.score - a.score);
-
-    return {
-      campaignGroupId: group.id ?? "",
-      campaignGroupName: group.campaignName,
-      candidates,
-    };
-  });
+  return campaignGroups.map((group) => ({
+    campaignGroupId: group.id ?? "",
+    campaignGroupName: group.campaignName,
+    candidates: scoreCampaignGroupCandidates(group, metaCampaigns),
+  }));
 }
 
 // ─── 1:N (One Campaign) Strategy ──────────────────────────────────────────
@@ -271,9 +279,12 @@ export function generateLineItemMatchSuggestions(
         budgetScore * LINE_ITEM_BUDGET_WEIGHT;
 
       if (score >= LINE_ITEM_SCORE_THRESHOLD) {
+        // geoScore is not used for ad-set-level matching (geo targeting is
+        // compared at the campaign level). Set to 0 to reflect that it is not
+        // scored, while reusing the shared MatchSignals type.
         const signals: MatchSignals = {
           nameScore,
-          geoScore: 0, // not used for line item matching — geo is at campaign level
+          geoScore: 0,
           dateScore,
         };
         candidates.push({
@@ -297,56 +308,18 @@ export function generateLineItemMatchSuggestions(
 }
 
 /**
- * Generate 1:N match suggestions: first match each group to a campaign,
- * then for the top campaign, generate line item → ad set suggestions.
+ * Generate 1:N match suggestions: match each group to campaign candidates.
+ * Line item suggestions are NOT pre-computed — fetch them on-demand via
+ * generateLineItemMatchSuggestions when the user selects a campaign.
  */
 export function generateOneToManyMatchSuggestions(
   campaignGroups: CampaignGroup[],
   metaCampaigns: MetaCampaignSnapshot[],
 ): OneToManyMatchSuggestion[] {
-  return campaignGroups.map((group) => {
-    // Reuse the existing campaign-level scoring to find campaign candidates
-    const campaignCandidates: MatchCandidate[] = [];
-
-    for (const meta of metaCampaigns) {
-      const nameScore = computeNameScore(group.campaignName, meta.name);
-      const geoScore = computeGeoScore(group, meta);
-      const dateScore = computeDateScore(group, meta);
-
-      const score =
-        nameScore * NAME_WEIGHT +
-        geoScore * GEO_WEIGHT +
-        dateScore * DATE_WEIGHT;
-
-      if (score >= SCORE_THRESHOLD) {
-        const signals: MatchSignals = { nameScore, geoScore, dateScore };
-        campaignCandidates.push({
-          metaCampaignId: meta.metaCampaignId,
-          metaCampaignName: meta.name,
-          score: Math.round(score * 1000) / 1000,
-          signals,
-        });
-      }
-    }
-
-    campaignCandidates.sort((a, b) => b.score - a.score);
-
-    // For the top campaign candidate, generate line item → ad set suggestions
-    let lineItemSuggestions: LineItemMatchSuggestion[] = [];
-    if (campaignCandidates.length > 0) {
-      const topMetaCampaign = metaCampaigns.find(
-        (m) => m.metaCampaignId === campaignCandidates[0].metaCampaignId,
-      );
-      if (topMetaCampaign) {
-        lineItemSuggestions = generateLineItemMatchSuggestions(group, topMetaCampaign);
-      }
-    }
-
-    return {
-      campaignGroupId: group.id ?? "",
-      campaignGroupName: group.campaignName,
-      metaCampaignCandidates: campaignCandidates,
-      lineItemSuggestions,
-    };
-  });
+  return campaignGroups.map((group) => ({
+    campaignGroupId: group.id ?? "",
+    campaignGroupName: group.campaignName,
+    metaCampaignCandidates: scoreCampaignGroupCandidates(group, metaCampaigns),
+    lineItemSuggestions: [],
+  }));
 }
